@@ -21,7 +21,7 @@
 #define GPS_PinTx     _PINNUM(0, 27) // nRF TX -> GNSS RX
 #define GPS_PinRx     _PINNUM(0, 26) // nRF RX <- GNSS TX
 #define GPS_PinPPS    Pin_NotUsed
-#define GPS_PinWake   _PINNUM(1,  9) // D0, GNSS standby/wake
+#define GPS_PinEna    _PINNUM(1,  9) // D0, GNSS standby/wake
 #define GPS_PinReset  Pin_NotUsed
 
 // SX1262 RF chip
@@ -45,6 +45,8 @@
 #define LED_Pin        _PINNUM(1, 1) // green LED, active high
 #define LED_StateOn    HIGH
 #define LED_StateOff   LOW
+
+#define LED_PinRed LED_Pin
 
 // Battery ADC and enable
 #define Battery_Enable_Pin _PINNUM(0, 4)

@@ -60,7 +60,10 @@
 #define LED_REV2_Red   _PINNUM(1,  3)
 #define LED_REV2_Blue  _PINNUM(0, 14)
 
-#define LED_Pin        LED_REV2_Red
+#define LED_PinRed     LED_REV2_Red
+#define LED_PinGreen   LED_REV2_Green
+#define LED_PinBlue    LED_REV2_Blue
+
 #define LED_StateOn    LOW
 #define LED_StateOff   HIGH
 

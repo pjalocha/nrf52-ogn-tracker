@@ -6,9 +6,21 @@ SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
 // SemaphoreHandle_t WIFI_Mutex;
 
+uint32_t RxProc_Count[8];  // temperary, the real is in PROC task
+
 // =======================================================================================================
 
-uint32_t RxProc_Count[8];  // temperary, the real is in PROC task
+void LED_PCB_On(bool ON)
+{ digitalWrite(LED_PinRed, ON ? LED_StateOn : LED_StateOff); }
+
+void LED_PCB_Off(void)
+{ LED_PCB_On(false); }
+
+void LED_PCB_Flash(uint8_t Time)
+{ LED_PCB_On(true);
+  if(Time>10) Time=10;
+  delay(Time);
+  LED_PCB_On(false); }
 
 void LED_OGN_RX(uint8_t ms) { }
 void LED_OGN_TX(uint8_t ms) { }
@@ -109,8 +121,25 @@ bool GPS_PPS_isOn(void)
 
 void setup()
 {
-  pinMode(LED_Pin, OUTPUT);
-  digitalWrite(LED_Pin, 0);  // LED is low-active
+  pinMode(LED_PinRed, OUTPUT);
+  digitalWrite(LED_PinRed  , LED_StateOn);
+#ifdef LED_PinGreen
+  pinMode(LED_PinGreen, OUTPUT);
+  digitalWrite(LED_PinGreen, LED_StateOff);
+#endif
+#ifdef LED_PinBlue
+  pinMode(LED_PinBlue, OUTPUT);
+  digitalWrite(LED_PinBlue , LED_StateOff);
+#endif
+
+#ifdef IO_Power_Pin
+  pinMode(IO_Power_Pin, OUTPUT);
+  digitalWrite(IO_Power_Pin, HIGH);
+#endif
+#ifdef RF_Power_Pin
+  pinMode(RF_Power_Pin, OUTPUT);
+  digitalWrite(RF_Power_Pin, HIGH);
+#endif
 
 /*
 #if defined(Battery_Enable_Pin)
@@ -129,16 +158,8 @@ void setup()
   Serial.begin(115200);
   Serial.println();
   delay(1000);
-  digitalWrite(LED_Pin, 1);
+  digitalWrite(LED_PinRed, LED_StateOff);
 
-  // for (uint8_t i = 0; i < 6; i++)
-  // { digitalWrite(LED_Pin, (i & 1) ? LED_StateOff : LED_StateOn);
-  //   delay(80); }
-  // digitalWrite(LED_Pin, LED_StateOff);
-
-  // Serial.println("BOOT setup");
-
-  // console_lock();
   Serial.print("nrf52-ogn-tracker ");
   Serial.print(HARD_NAME);
   Serial.println(" GPS/FreeRTOS check");
@@ -147,31 +168,18 @@ void setup()
   Serial.print(__DATE__);
   Serial.print(' ');
   Serial.println(__TIME__);
-  delay(1000);
-  Serial.print("FreeRTOS tick [Hz] = ");
-  Serial.println(configTICK_RATE_HZ);
-  // print_pin_check();
-  // console_unlock();
+  // delay(1000);
+  // Serial.print("FreeRTOS tick [Hz] = ");
+  // Serial.println(configTICK_RATE_HZ);
 
   GPS_UART_Init(GPS_getBaudRate());
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
   // xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 0, NULL);  // process received packets, prepare packets for transmission
   xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 1, NULL);  // transmit/receive packets
 
-/*
-  create_task(vTaskLED, "LED", 256, TASK_PRIO_LOW, &led_task_handle);
-  create_task(vTaskPROC, "PROC", 384, TASK_PRIO_LOW, &proc_task_handle);
-  create_task(Radio_Task, "RF", 384, TASK_PRIO_LOW, &radio_task_handle);
-  create_task(vTaskCONSOLE, "CONS", 640, TASK_PRIO_LOW, &console_task_handle);
-  gps_start_state = 1;
-  gps_task_create_result = create_task(vTaskGPSStart, "GPS0", 1024, TASK_PRIO_NORMAL, &gps_start_task_handle);
-  if (gps_task_create_result != pdPASS) {
-    gps_start_state = 9;
-  }
-*/
 }
 
 void loop()
 { vTaskDelay(configTICK_RATE_HZ/10);
-  // Serial.println("loop() ...");
+  ///
 }

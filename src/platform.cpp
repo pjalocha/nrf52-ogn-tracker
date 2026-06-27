@@ -67,6 +67,7 @@ bool GPS_PPS_isOn(void)
 }
 */
 
+/*
 void LED_PCB_On(bool ON)
 { digitalWrite(LED_Pin, ON ? LED_StateOn : LED_StateOff); }
 
@@ -78,6 +79,7 @@ void LED_PCB_Flash(uint8_t Time)
   if(Time>10) Time=10;
   delay(Time);
   LED_PCB_On(false); }
+*/
 
 uint16_t BatterySense(int Samples)
 { (void)Samples;
