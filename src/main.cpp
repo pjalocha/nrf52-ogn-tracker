@@ -1,126 +1,168 @@
-#include <Arduino.h>
-#include <Adafruit_TinyUSB.h>
+#include "main.h"
+#include "gps.h"
 
-#if defined(WITH_WIO_TRACKER)
-#include "wio-tracker-pins.h"
-#elif defined(WITH_T_ECHO)
-#include "t-echo-pins.h"
-#else
-#error "No board pin definition selected"
+SemaphoreHandle_t CONS_Mutex;
+SemaphoreHandle_t I2C_Mutex;
+// SemaphoreHandle_t WIFI_Mutex;
+
+// =======================================================================================================
+
+uint64_t getUniqueMAC(void) { uint64_t MAC = ((uint64_t)NRF_FICR->DEVICEID[1] << 32) | NRF_FICR->DEVICEID[0]; return MAC; }
+
+uint64_t getUniqueID(void)      { return getUniqueMAC(); }         // get unique serial ID of the CPU/chip
+uint32_t getUniqueAddress(void) { return getUniqueMAC()&0x00FFFFFF; } // get unique OGN address
+
+// =======================================================================================================
+
+FlashParameters Parameters;  // parameters stored in Flash: address, aircraft type, etc.
+
+// =======================================================================================================
+
+int CONS_UART_Read(uint8_t &Byte)
+{ if (!Serial.available()) return 0;
+  Byte = (uint8_t)Serial.read(); return 1; }
+
+void CONS_UART_Write(char Byte)
+{ Serial.write((uint8_t)Byte); }
+
+int CONS_UART_Free(void)
+{ return Serial.availableForWrite(); }
+
+// =======================================================================================================
+
+// static uint32_t gps_baud_rate = 115200;
+
+void GPS_UART_Init(uint32_t BaudRate)
+{ // gps_baud_rate = BaudRate;
+  // Serial1.end();
+  Serial1.setPins(GPS_PinRx, GPS_PinTx);
+  Serial1.begin(BaudRate);
+#if defined(GPS_PinEna)
+  if(GPS_PinEna>=0)
+  { pinMode(GPS_PinEna, OUTPUT);
+    digitalWrite(GPS_PinEna, HIGH); }
 #endif
-
-#if !defined(HARD_NAME)
-#define HARD_NAME "nRF52"
+#if defined(GPS_PinReset)
+  if(GPS_PinReset>=0)
+  { pinMode(GPS_PinReset, OUTPUT);
+    digitalWrite(GPS_PinReset, HIGH); }
 #endif
-
-static uint32_t last_report_ms = 0;
-static uint32_t tick_count = 0;
-
-static void print_pin_check()
-{
-  Serial.println("Pins:");
-
-  Serial.print("  Button/LED: ");
-  Serial.print(Button_Pin);
-  Serial.print('/');
-  Serial.println(LED_Pin);
-
-  Serial.print("  GPS RX/TX/PPS: ");
-  Serial.print(GPS_PinRx);
-  Serial.print('/');
-  Serial.print(GPS_PinTx);
-  Serial.print('/');
-  Serial.println(GPS_PinPPS);
-
-  Serial.print("  Radio CS/SCK/MOSI/MISO/RST/IRQ/BUSY: ");
-  Serial.print(Radio_PinCS);
-  Serial.print('/');
-  Serial.print(Radio_PinSCK);
-  Serial.print('/');
-  Serial.print(Radio_PinMOSI);
-  Serial.print('/');
-  Serial.print(Radio_PinMISO);
-  Serial.print('/');
-  Serial.print(Radio_PinRST);
-  Serial.print('/');
-  Serial.print(Radio_PinIRQ);
-  Serial.print('/');
-  Serial.println(Radio_PinBusy);
-
-#if defined(Radio_PinRXEN)
-  Serial.print("  Radio RXEN/TXEN: ");
-  Serial.print(Radio_PinRXEN);
-  Serial.print('/');
-  Serial.println(Radio_PinTXEN);
-#endif
-
-  Serial.print("  I2C SDA/SCL: ");
-  Serial.print(I2C_PinSDA);
-  Serial.print('/');
-  Serial.println(I2C_PinSCL);
-
-#if defined(OLED_Model)
-  Serial.print("  OLED: ");
-  Serial.print(OLED_Model);
-  Serial.print(" RST=");
-  Serial.println(OLED_PinRST);
-#endif
-
-#if defined(Battery_Enable_Pin)
-  Serial.print("  Battery EN/ADC: ");
-  Serial.print(Battery_Enable_Pin);
-  Serial.print('/');
-  Serial.println(Battery_Pin);
-#endif
-
-#if defined(Buzzer_Pin)
-  Serial.print("  Buzzer: ");
-  Serial.println(Buzzer_Pin);
+#if defined(GPS_PinPPS)
+  if(GPS_PinPPS>=0)
+  { pinMode(GPS_PinPPS, INPUT); }
 #endif
 }
+
+#ifdef GPS_PinEna
+void GPS_DISABLE(void) { digitalWrite(GPS_PinEna, LOW); }
+void GPS_ENABLE (void) { digitalWrite(GPS_PinEna, HIGH); }
+#endif
+
+int GPS_UART_Full(void)
+{ return Serial1.available(); }
+
+int GPS_UART_Read(uint8_t &Byte)
+{ if (!Serial1.available()) return 0;
+  Byte = (uint8_t)Serial1.read(); return 1; }
+
+int GPS_UART_Read(uint8_t *Data, int Max)
+{ int Count=0;
+  while (Count<Max && Serial1.available())
+  { Data[Count++] = (uint8_t)Serial1.read(); }
+  return Count; }
+
+void GPS_UART_Write(char Byte)
+{ Serial1.write((uint8_t)Byte); }
+
+void GPS_UART_Flush(int MaxWait)
+{ uint32_t start = millis();
+  Serial1.flush();
+  while (Serial1.available() && ((int)(millis() - start) < MaxWait))
+  { (void)Serial1.read(); }
+}
+
+void GPS_UART_SetBaudrate(int BaudRate)
+{ // gps_baud_rate = BaudRate;
+  Serial1.end();
+  Serial1.setPins(GPS_PinRx, GPS_PinTx);
+  Serial1.begin(BaudRate); }
+
+bool GPS_PPS_isOn(void)
+{
+#if defined(GPS_PinPPS)
+  if(GPS_PinPPS<0) return false;
+  return digitalRead(GPS_PinPPS) != LOW;
+#else
+  return false;
+#endif
+}
+
+// =======================================================================================================
 
 void setup()
 {
   pinMode(LED_Pin, OUTPUT);
-  digitalWrite(LED_Pin, LED_StateOff);
+  digitalWrite(LED_Pin, 0);  // LED is low-active
 
+/*
 #if defined(Battery_Enable_Pin)
   pinMode(Battery_Enable_Pin, OUTPUT);
   digitalWrite(Battery_Enable_Pin, HIGH);
 #endif
 
+*/
+
+  CONS_Mutex = xSemaphoreCreateMutex();
+  I2C_Mutex = xSemaphoreCreateMutex();
+  // WIFI_Mutex = xSemaphoreCreateMutex();
+
+  Parameters.setDefault(getUniqueAddress()); // set default parameter values
+
   Serial.begin(115200);
-
-  uint32_t start_ms = millis();
-  while (!Serial && (millis() - start_ms) < 5000) {
-    delay(10);
-  }
-
   Serial.println();
+  delay(1000);
+  digitalWrite(LED_Pin, 1);
+
+  // for (uint8_t i = 0; i < 6; i++)
+  // { digitalWrite(LED_Pin, (i & 1) ? LED_StateOff : LED_StateOn);
+  //   delay(80); }
+  // digitalWrite(LED_Pin, LED_StateOff);
+
+  // Serial.println("BOOT setup");
+
+  // console_lock();
   Serial.print("nrf52-ogn-tracker ");
   Serial.print(HARD_NAME);
-  Serial.println(" console check");
+  Serial.println(" GPS/FreeRTOS check");
+  delay(1000);
   Serial.print("Build: ");
   Serial.print(__DATE__);
   Serial.print(' ');
   Serial.println(__TIME__);
-  print_pin_check();
+  delay(1000);
+  Serial.print("FreeRTOS tick [Hz] = ");
+  Serial.println(configTICK_RATE_HZ);
+  // print_pin_check();
+  // console_unlock();
+
+  GPS_UART_Init(GPS_getBaudRate());
+  xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
+  // create_task(vTaskGPS, "GPS", 4000, TASK_PRIO_LOW, &led_task_handle);
+
+/*
+  create_task(vTaskLED, "LED", 256, TASK_PRIO_LOW, &led_task_handle);
+  create_task(vTaskPROC, "PROC", 384, TASK_PRIO_LOW, &proc_task_handle);
+  create_task(Radio_Task, "RF", 384, TASK_PRIO_LOW, &radio_task_handle);
+  create_task(vTaskCONSOLE, "CONS", 640, TASK_PRIO_LOW, &console_task_handle);
+  gps_start_state = 1;
+  gps_task_create_result = create_task(vTaskGPSStart, "GPS0", 1024, TASK_PRIO_NORMAL, &gps_start_task_handle);
+  if (gps_task_create_result != pdPASS) {
+    gps_start_state = 9;
+  }
+*/
 }
 
 void loop()
-{
-  uint32_t now_ms = millis();
-
-  if ((now_ms - last_report_ms) >= 1000) {
-    last_report_ms = now_ms;
-    tick_count++;
-
-    digitalWrite(LED_Pin, (tick_count & 1) ? LED_StateOn : LED_StateOff);
-
-    Serial.print(HARD_NAME);
-    Serial.print(" alive ");
-    Serial.print(tick_count);
-    Serial.print(" uptime_ms=");
-    Serial.println(now_ms);
-  }
+{ vTaskDelay(configTICK_RATE_HZ/10);
+  // Serial.println("loop() ...");
 }

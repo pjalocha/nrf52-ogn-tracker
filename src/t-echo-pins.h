@@ -15,7 +15,7 @@
 #define GPS_PinTx     _PINNUM(1,  8) // nRF TX -> GNSS RX
 #define GPS_PinRx     _PINNUM(1,  9) // nRF RX <- GNSS TX
 #define GPS_PinPPS    _PINNUM(1,  4) // PPS
-#define GPS_PinWake   _PINNUM(1,  2) // wake/standby
+#define GPS_PinEna    _PINNUM(1,  2) // wake/standby
 #define GPS_PinReset  _PINNUM(1,  5) // reset, present on later revisions
 
 // SX1262 RF chip
