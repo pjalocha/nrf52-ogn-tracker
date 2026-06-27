@@ -9,6 +9,17 @@
 #include <string.h>
 #include <math.h>
 
+#ifndef VERSION
+#define VERSION "0.1.27"
+#endif
+
+#ifndef SOFT_NAME
+#define SOFT_NAME "OGNv" VERSION
+#endif
+
+#define HARDWARE_ID 0x05
+#define SOFTWARE_ID 0x01
+
 #define WITH_OGN1                          // OGN protocol version 1
 #define OGN_Packet OGN1_Packet
 
@@ -99,7 +110,25 @@ void GPS_UART_Flush(int MaxWait);
 void GPS_UART_SetBaudrate(int BaudRate);
 void GPS_UART_Init(uint32_t BaudRate = 115200);
 
+
 bool GPS_PPS_isOn(void);
+#ifdef GPS_PinPPS
+extern uint32_t PPS_Intr_usTime;   // [us] micros() counter at the time of the PPS
+extern uint32_t PPS_Intr_msTime;   // [ms] millis() counter at the time of the PPS
+
+extern uint32_t PPS_usPrecTime;
+extern uint32_t PPS_usTimeRMS;
+
+extern uint32_t PPS_Intr_usFirst;  // [us] the time of the first interrupt in a series
+extern uint32_t PPS_Intr_Count;    // [count] of good PPS interrupts in the series
+extern uint32_t PPS_Intr_Missed;   // [count] of missed PPS interrupts
+
+extern  int32_t PPS_usPeriodErr;   // [1/16us] PPS period systematic error
+extern uint32_t PPS_usPeriodRMS;   // [ ]
+
+int PPS_Print(char *Line);
+#endif
+
 #ifdef GPS_PinEna
 void GPS_ENABLE(void);
 void GPS_DISABLE(void);

@@ -1,12 +1,13 @@
 #include "main.h"
 #include "gps.h"
+#include "proc.h"
 #include "ogn-radio.h"
 
 SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
 // SemaphoreHandle_t WIFI_Mutex;
 
-uint32_t RxProc_Count[8];  // temperary, the real is in PROC task
+// uint32_t RxProc_Count[8];  // temperary, the real is in PROC task
 
 // =======================================================================================================
 
@@ -50,7 +51,74 @@ int CONS_UART_Free(void)
 
 // =======================================================================================================
 
-// static uint32_t gps_baud_rate = 115200;
+#ifdef GPS_PinPPS
+uint32_t PPS_Intr_msTime = 0;   // [ms] xTaskGetTickCount() counter at the time of the PPS
+uint32_t PPS_Intr_usTime = 0;   // [us] micros() counter at the time of the PPS
+
+uint32_t PPS_usPrecTime  = 0;   // [1/16us] precise time of the PPS
+uint32_t PPS_usTimeRMS   = 0;   // [1/4us]  precise PPS time residue time error RMS
+
+uint32_t PPS_Intr_usFirst= 0;   // [us] micros() counter at the first interrupt in a series
+uint32_t PPS_Intr_Count  = 0;   // [count] good PPS interrupts in the series
+uint32_t PPS_Intr_Missed = 0;   // [count] missed PPS interrupts
+
+ int32_t PPS_usPeriodErr = 0;   // [1/16us] PPS period average systematic error
+uint32_t PPS_usPeriodRMS = 0;   // [(1/4us)^2] mean square of statistical error
+
+const uint32_t PPS_usPeriod = 1000000;  // [usec] expected PPS period = 1sec = 10000000usec
+
+static void PPS_Intr(void *Context)
+{ uint32_t usTime = micros();                                     // [usec] usec-clock at interrupt time
+  uint32_t msTime = xTaskGetTickCount();                          // [msec] mses-clock at interrupt time
+  uint32_t usDelta = usTime - PPS_Intr_usTime;                    // difference from the previous PPS
+  PPS_Intr_usTime = usTime;                                       // [usec]
+  PPS_Intr_msTime = msTime;                                       // [ms]
+  uint32_t Cycles = (usDelta+PPS_usPeriod/2)/PPS_usPeriod;        // how many PPS periods past
+   int32_t usResid = usDelta-Cycles*PPS_usPeriod;                 // [usec]
+  if(Cycles>0 && Cycles<=10 && abs(usResid)<Cycles*500)           // condition to accept the PPS edge
+  { int32_t ResidErr = (usResid<<4)-PPS_usPeriodErr;              // [1/16us]
+    if(Cycles>1) ResidErr/=Cycles;
+    PPS_usPeriodErr += (ResidErr+2)>>2;                         // [1/16us] average the PPS period error
+    uint32_t ErrSqr = ResidErr*ResidErr;
+    if(PPS_Intr_Count)                                            // if not the first edge in the series
+    { PPS_usPrecTime += ((PPS_usPeriod<<4)+PPS_usPeriodErr)*Cycles;  // [1/16us] forcast the PPS time to the current PPS
+      PPS_usPeriodRMS += ((int32_t)((ErrSqr>>4)-PPS_usPeriodRMS)+2)>>2;
+      int32_t usTimeErr = (usTime<<4)-PPS_usPrecTime;                // [1/16us] difference between current PPs and the forecast
+      PPS_usPrecTime += (usTimeErr+2)>>2;                            // [1/16us]
+      uint32_t ErrSqr = usTimeErr*usTimeErr;
+      PPS_usTimeRMS += ((int32_t)((ErrSqr>>4)-PPS_usTimeRMS)+2)>>2; }
+    else                                                          // if this was the very first edge in the series
+    { PPS_usPrecTime  = PPS_Intr_usTime<<4;
+      PPS_usTimeRMS   = 4<<4;
+      PPS_usPeriodErr = ResidErr;
+      PPS_usPeriodRMS = 4<<4; }                                   // set statistical error RMS to 2 usec
+    PPS_Intr_Count += Cycles;
+    PPS_Intr_Missed+= Cycles-1; }                                 // count PPS cycles
+  else                                                            // if edge is not accepted
+  { PPS_Intr_Count=0;                                             // then we start all from scratch
+    PPS_Intr_Missed=0;
+    PPS_Intr_usFirst= usTime; }
+}
+
+int PPS_Print(char *Line)
+{ int Len=0;
+  uint32_t msTime = millis();
+  uint32_t PPSage = msTime-PPS_Intr_msTime;                         // [ms] time since the last PPS interrupt
+  uint32_t UTC    = GPS_TimeSync.UTC;                               // [sec] time since last ref. UTC
+  uint32_t UTCage = msTime-GPS_TimeSync.sysTime;                    // [ms] time since last ref. UTC
+  // Serial.printf("PPS: PPSage:%u UTCage:%u [ms] UTC:%u", PPSage, UTCage, UTC);
+  PPSage -= UTCage;                                                 //
+  PPSage += 500;
+  UTC -= PPSage/1000;
+  // Serial.printf(" => PPSage:%u UTC:%u\n", PPSage, UTC);
+  if(PPS_Intr_Count>=10 && PPSage<=20000)
+    Len=sprintf(Line, "SatPPS: %08X:%08X/16MHz/%3.1fus %+3.1fppm %3.1fus %ds",
+              UTC, PPS_usPrecTime,
+              (1.0/4)*IntSqrt(PPS_usTimeRMS),
+              (-1.0/16)*PPS_usPeriodErr, (1.0/4)*IntSqrt(PPS_usPeriodRMS),
+              PPS_Intr_Count );
+  return Len; }
+#endif
 
 void GPS_UART_Init(uint32_t BaudRate)
 { // gps_baud_rate = BaudRate;
@@ -69,7 +137,9 @@ void GPS_UART_Init(uint32_t BaudRate)
 #endif
 #if defined(GPS_PinPPS)
   if(GPS_PinPPS>=0)
-  { pinMode(GPS_PinPPS, INPUT); }
+  { pinMode(GPS_PinPPS, INPUT);
+    // attachInterrupt(digitalPinToInterrupt(GPS_PinPPS), PPS_Intr, RISING);
+  }
 #endif
 }
 
@@ -174,8 +244,8 @@ void setup()
 
   GPS_UART_Init(GPS_getBaudRate());
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
-  // xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 0, NULL);  // process received packets, prepare packets for transmission
   xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 1, NULL);  // transmit/receive packets
+  xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 0, NULL);  // process received packets, prepare packets for transmission
 
 }
 
