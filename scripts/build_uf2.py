@@ -7,10 +7,16 @@ Import("env")
 def build_uf2(source, target, env):
     build_dir = Path(env.subst("$BUILD_DIR"))
     bin_path = build_dir / "firmware.bin"
+    hex_path = build_dir / "firmware.hex"
     uf2_path = build_dir / "firmware.uf2"
+    base_address = env.GetProjectOption("custom_uf2_base")
 
-    if not bin_path.exists():
-        print(f"UF2: missing {bin_path}")
+    if hex_path.exists():
+        input_path = hex_path
+    elif bin_path.exists():
+        input_path = bin_path
+    else:
+        print(f"UF2: missing {hex_path} and {bin_path}")
         return
 
     packages_dir = Path(env.subst("$PROJECT_PACKAGES_DIR"))
@@ -22,17 +28,19 @@ def build_uf2(source, target, env):
     cmd = [
         env.subst("$PYTHONEXE"),
         str(tools[0]),
-        str(bin_path),
+        str(input_path),
         "-c",
-        "-b",
-        "0x26000",
         "-f",
         "0xADA52840",
         "-o",
         str(uf2_path),
     ]
+    if input_path.suffix == ".bin":
+        cmd[4:4] = ["-b", base_address]
+
     subprocess.check_call(cmd)
-    print(f"UF2: wrote {uf2_path}")
+    print(f"UF2: wrote {uf2_path} from {input_path.name}")
 
 
 env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", build_uf2)
+env.AddPostAction("$BUILD_DIR/${PROGNAME}.hex", build_uf2)
