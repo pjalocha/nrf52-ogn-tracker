@@ -30,7 +30,7 @@
 #define Radio_PinMOSI _PINNUM(0, 28) // MOSI
 #define Radio_PinMISO _PINNUM(0,  3) // MISO
 #define Radio_PinCS   _PINNUM(1, 14) // CS/NSS
-#define Radio_PinIRQ  _PINNUM(0,  7) // DIO1/IRQ
+#define Radio_PinIRQ1 _PINNUM(0,  7) // DIO1/IRQ
 #define Radio_PinBusy _PINNUM(1, 10) // BUSY
 #define Radio_PinRXEN _PINNUM(1,  8) // RF switch RX enable
 #define Radio_PinTXEN Pin_NotUsed

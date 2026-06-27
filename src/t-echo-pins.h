@@ -24,8 +24,9 @@
 #define Radio_PinMOSI _PINNUM(0, 22) // MOSI
 #define Radio_PinMISO _PINNUM(0, 23) // MISO
 #define Radio_PinCS   _PINNUM(0, 24) // CS/NSS
-#define Radio_PinIRQ  _PINNUM(0, 20) // DIO1/IRQ
+#define Radio_PinIRQ1 _PINNUM(0, 20) // DIO1/IRQ
 #define Radio_PinBusy _PINNUM(0, 17) // BUSY
+
 #define Radio_PinDIO0_REV0 Pin_NotUsed
 #define Radio_PinDIO0_REV1 _PINNUM(1,  1)
 #define Radio_PinDIO0_REV2 _PINNUM(0, 15)

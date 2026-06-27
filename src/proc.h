@@ -1,0 +1,32 @@
+#pragma once
+
+#ifdef WITH_THINKNODE_M5
+extern uint8_t AlarmThresh;
+#endif
+
+#ifdef WITH_LOOKOUT                   // traffic awareness and warnings
+#include "lookout.h"
+extern LookOut<32> Look;
+#endif
+
+extern uint32_t BatteryVoltage;       // [1/256 mV] averaged
+extern  int32_t BatteryVoltageRate;   // [1/256 mV] averaged
+
+extern uint32_t RxProc_Count[8];
+
+// extern FlightMonitor Flight;
+
+#ifdef WITH_ESP32
+const uint8_t RelayQueueSize = 32;
+#else
+const uint8_t RelayQueueSize = 16;
+#endif
+
+extern Relay_PrioQueue<OGN_RxPacket<OGN_Packet>, RelayQueueSize> OGN_RelayQueue;       // received packets and candidates to be relayed
+extern Relay_PrioQueue<ADSL_RxPacket, RelayQueueSize>           ADSL_RelayQueue;       // received ADSL packets and candidates to be relayed
+
+#ifdef __cplusplus
+  extern "C"
+#endif
+ void vTaskPROC(void* pvParameters);
+

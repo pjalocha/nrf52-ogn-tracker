@@ -42,45 +42,6 @@ uint32_t getUniqueAddress(void);
 #define SOFT_NAME "nRF52-OGN"
 #endif
 
-// #define WITH_OGN1
-// #define OGN_Packet OGN1_Packet
-
-// #define DEFAULT_GeoidSepar 40
-// #define DEFAULT_PPSdelay 100
-
-// #ifndef ESP_OK
-// #define ESP_OK 0
-// #endif
-// typedef int esp_err_t;
-
-/*
-class FlashParameters
-{
-public:
-  uint8_t AddrType = 1;
-  uint32_t Address = 0x123456;
-  uint8_t NavRate = 1;
-  uint8_t NavMode = 6;
-  uint8_t GNSS = 0;
-  uint8_t EnableGPS = 1;
-  uint8_t EnableGLO = 1;
-  uint8_t EnableGAL = 1;
-  uint8_t EnableBEI = 1;
-  uint8_t EnableSBAS = 1;
-  int16_t TimeCorr = 0;
-  int16_t PPSdelay = DEFAULT_PPSdelay;
-  int16_t GeoidSepar = DEFAULT_GeoidSepar * 10;
-  uint8_t manGeoidSepar = 0;
-  uint8_t Verbose = 1;
-
-  int WritePOGNS(char *line) const
-  {
-    return sprintf(line, "$POGNS,Address=%06lX,AddrType=%u\r\n",
-                   (unsigned long)Address, (unsigned)AddrType);
-  }
-};
-*/
-
 extern FlashParameters Parameters;
 
 extern SemaphoreHandle_t CONS_Mutex;
@@ -143,6 +104,9 @@ bool GPS_PPS_isOn(void);
 void GPS_ENABLE(void);
 void GPS_DISABLE(void);
 #endif
+
+void LED_OGN_RX(uint8_t ms);
+void LED_OGN_TX(uint8_t ms);
 
 void LED_PCB_On(bool ON = 1);
 void LED_PCB_Off(void);

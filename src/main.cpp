@@ -1,9 +1,17 @@
 #include "main.h"
 #include "gps.h"
+#include "ogn-radio.h"
 
 SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
 // SemaphoreHandle_t WIFI_Mutex;
+
+// =======================================================================================================
+
+uint32_t RxProc_Count[8];  // temperary, the real is in PROC task
+
+void LED_OGN_RX(uint8_t ms) { }
+void LED_OGN_TX(uint8_t ms) { }
 
 // =======================================================================================================
 
@@ -147,7 +155,8 @@ void setup()
 
   GPS_UART_Init(GPS_getBaudRate());
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
-  // create_task(vTaskGPS, "GPS", 4000, TASK_PRIO_LOW, &led_task_handle);
+  // xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 0, NULL);  // process received packets, prepare packets for transmission
+  xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 1, NULL);  // transmit/receive packets
 
 /*
   create_task(vTaskLED, "LED", 256, TASK_PRIO_LOW, &led_task_handle);

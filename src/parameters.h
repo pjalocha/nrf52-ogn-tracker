@@ -377,7 +377,15 @@ uint16_t StratuxPort;
 //   Packet.Header.AddrType   = Parameters.AddrType;   // address-type
 //   Packet.Header.Other=1;
 //   Packet.calcAddrParity(); }                        // parity of (part of) the header
+/*
+#ifdef WITH_NRF52
+  int WriteToNVS(int NameID=0x1234, int NameSpaceID=0x5678)
+  { return FlashWrite(NameSpaceID, NameID, this, sizeof(FlashParameters)); }
 
+  int ReadFromNVS(int NameID=0x1234, int NameSpaceID=0x5678)
+  { return FlashRead(NameSpaceID, NameID, this, sizeof(FlashParameters)); }
+#endif
+*/
 #ifdef WITH_ESP32
   esp_err_t WriteToNVS(const char *Name="Parameters", const char *NameSpace="TRACKER")
   { nvs_handle Handle;
