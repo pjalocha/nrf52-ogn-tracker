@@ -98,9 +98,10 @@ inline void XorShift32(uint32_t &word)
   word ^= word >> 17;
   word ^= word << 5; }
 
-int CONS_UART_Read(uint8_t &Byte);
+bool CONS_UART_isConnected(void);
+int  CONS_UART_Read(uint8_t &Byte);
 void CONS_UART_Write(char Byte);
-int CONS_UART_Free(void);
+int  CONS_UART_Free(void);
 
 int GPS_UART_Full(void);
 int GPS_UART_Read(uint8_t &Byte);

@@ -57,12 +57,15 @@ FlashParameters Parameters;  // parameters stored in Flash: address, aircraft ty
 
 // =======================================================================================================
 
+bool CONS_UART_isConnected(void)
+{ return Serial && Serial.dtr(); }
+
 int CONS_UART_Read(uint8_t &Byte)
-{ if (!Serial.available()) return 0;
+{ if(!Serial.available()) return 0;
   Byte = (uint8_t)Serial.read(); return 1; }
 
 void CONS_UART_Write(char Byte)
-{ // if(CONS_UART_Free()<8) return;
+{ if(CONS_UART_Free()<80) return;
   Serial.write((uint8_t)Byte); }
 
 int CONS_UART_Free(void)
@@ -210,6 +213,7 @@ bool GPS_PPS_isOn(void)
 
 void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout, bool LogOnly)
 { (void)Timestamp;
+  if(!CONS_UART_isConnected()) return;
   if (LogOnly || Line==0 || LineLen <= 0) return;
   if(!xSemaphoreTake(CONS_Mutex, msTimeout)) return;
   if(CONS_UART_Free()>LineLen) Serial.write((const uint8_t *)Line, LineLen);

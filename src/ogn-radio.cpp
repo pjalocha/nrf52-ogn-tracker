@@ -1545,7 +1545,7 @@ void Radio_Task(void *Parms)
              // OGN_TxFIFO.isCorrupt()?'!':'_', ADSL_TxFIFO.isCorrupt()?'!':'_',
              // FSK_RxFIFO.isCorrupt()?'!':'_', PAW_TxFIFO.isCorrupt()?'!':'_');
     PktCountSum=0; Radio_msLiveTime=0; Radio_msDeadTime=0;
-    if((Parameters.Verbose&0b01) && xSemaphoreTake(CONS_Mutex, 30))
+    if((Parameters.Verbose&0b01) && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 30))
     { if(CONS_UART_Free()>LineLen) Serial.println(Line);
       xSemaphoreGive(CONS_Mutex); }
     Line[LineLen++]='\n'; Line[LineLen]=0;

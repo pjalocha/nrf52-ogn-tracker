@@ -61,7 +61,7 @@ void Sound_TrafficWarn(const LookOut_Target *Tgt)
   uint16_t HorDist = Tgt->HorDist;       // [0.5]
   uint16_t Bearing = Tgt->getBearing();  //
   int16_t RelBearing = Look.getRelBearing(Tgt);
-  if(xSemaphoreTake(CONS_Mutex, 25))
+  if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
   { Format_String(CONS_UART_Write, "Traffic: ");
     CONS_UART_Write('#');
     CONS_UART_Write('0'+WarnLevel);
@@ -427,7 +427,7 @@ static void ReadStatus(OGN_Packet &Packet)
     Len+=NMEA_AppendCheckCRNL(Line, Len);                                    // append NMEA check-sum and CR+NL
     // LogLine(Line);
     // if(CONS_UART_Free()>=128)
-    if(xSemaphoreTake(CONS_Mutex, 25))
+    if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
     { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);                          // send the NMEA out to the console
       xSemaphoreGive(CONS_Mutex); }
     SysLog_Line(Line, Len, 0, 25, 1);
@@ -570,7 +570,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
 #ifdef WITH_POGNT
     { uint8_t Len=RxPacket->WritePOGNT(Line);                                         // print on the console as $POGNT
       if(Parameters.Verbose & 0b01)
-      if(xSemaphoreTake(CONS_Mutex, 25))
+      if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
       SysLog_Line(Line, Len, 0, 25, 1);
@@ -621,7 +621,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
 #endif
       { Len=RxPacket->WritePFLAA(Line, Warn, LatDist, LonDist, RxPacket->Packet.DecodeAltitude()-GPS_Altitude/10); }
       if(Len>0)
-      if(xSemaphoreTake(CONS_Mutex, 25))
+      if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
       if(Len>0) SysLog_Line(Line, Len, 0, 25, 1);
@@ -749,8 +749,7 @@ static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t
       else
 #endif
       { Len=RxPacket->Packet.WritePFLAA(Line, Warn, LatDist, LonDist, RxPacket->Packet.getAlt()-(GPS_Altitude+GPS_GeoidSepar)/10); }
-      if(Len>0)
-      if(xSemaphoreTake(CONS_Mutex, 25))
+      if(Len>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
       if(Len>0) SysLog_Line(Line, Len, 0, 25, 1);
@@ -1244,7 +1243,7 @@ void vTaskPROC(void* pvParameters)
       const LookOut_Target *Tgt=Look.ProcessOwn(PosPacket.Packet, PosTime, Position->GeoidSeparation/10);
 #ifdef WITH_PFLAA
       if(Parameters.Verbose & 0b01)
-      { if(xSemaphoreTake(CONS_Mutex, 25))
+      { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
         { if(CONS_UART_Free()>80) Look.WritePFLA(CONS_UART_Write);                                // produce PFLAU and PFLAA for all tracked targets
           xSemaphoreGive(CONS_Mutex); }
         Look.WritePFLA(SysLog_Line, 0, 25, 1);                            // write all PFLA'a to the console/sys-log
@@ -1252,7 +1251,7 @@ void vTaskPROC(void* pvParameters)
 #else // WITH_PFLAA
       if(Parameters.Verbose & 0b01)
       { uint8_t Len=Look.WritePFLAU(Line);                                // $PFLAU, overall status
-        if(xSemaphoreTake(CONS_Mutex, 25))
+        if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
         { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
           xSemaphoreGive(CONS_Mutex); }
         SysLog_Line(Line, Len, 0, 25, 1);
@@ -1306,7 +1305,7 @@ void vTaskPROC(void* pvParameters)
 #ifdef WITH_PFLAA
       if(Parameters.Verbose & 0b01)
       { uint8_t Len=Look.WritePFLAU(Line);                                // $PFLAU, overall status
-        if(xSemaphoreTake(CONS_Mutex, 25))
+        if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
         { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
           xSemaphoreGive(CONS_Mutex); }
         SysLog_Line(Line, Len, 0, 25, 1);

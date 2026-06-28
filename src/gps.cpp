@@ -122,7 +122,7 @@ void FlightProcess(void)
   { if(RndID_TimeToChange==1)
     { Parameters.Address = (Rnd%0xFFFFFE)+1;
       Parameters.WritePOGNS(Line);
-      if(xSemaphoreTake(CONS_Mutex, 25))
+      if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { Format_String(CONS_UART_Write, Line);
         // Format_String(CONS_UART_Write, "$POGNS,Address=0x");
         // Format_Hex(CONS_UART_Write, (uint8_t)(Parameters.Address>>16));
@@ -719,7 +719,7 @@ static void GPS_NMEA(bool Correct=1)                                        // w
 #else                                     // or filter them
     if(Parameters.Verbose & 0b01 && !NMEA.isGxGSV() /* && !NMEA.isGxGSA() */ && !NMEA.isGxTXT())
 #endif
-    { if(xSemaphoreTake(CONS_Mutex, 10))
+    { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 20))
       { if(CONS_UART_Free()>=NMEA.Len+2)
         { Format_String(CONS_UART_Write, (const char *)NMEA.Data, 0, NMEA.Len);
           CONS_UART_Write('\r'); CONS_UART_Write('\n'); }
@@ -758,7 +758,7 @@ static void GPS_UBX(void)                                                       
 #endif
   // GPS_Pos[GPS_PosIdx].ReadUBX(UBX);
 #ifdef WITH_GPS_UBX_PASS
-  { if(xSemaphoreTake(CONS_Mutex, 25))                                 // send ther UBX packet to the console
+  { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))                                 // send ther UBX packet to the console
     { UBX.Send(CONS_UART_Write);
     // DumpUBX();
     // Format_String(CONS_UART_Write, "UBX");
@@ -777,7 +777,7 @@ static void GPS_UBX(void)                                                       
     { int Len=strlen((const char *)UBX.Byte+Idx); if(Len>=30) break;
       strcpy(GPS_FirmExt[ExtIdx], (const char *)UBX.Byte+Idx);
       ExtLen+=Len; ExtIdx++; if(ExtIdx>=8) break; }
-    if(xSemaphoreTake(CONS_Mutex, 20))
+    if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 20))
     { Format_String(CONS_UART_Write, "MON-VER [");
       Format_UnsDec(CONS_UART_Write, UBX.Bytes);
       Format_String(CONS_UART_Write, "]\nHard: ");
@@ -849,7 +849,7 @@ static void GPS_UBX(void)                                                       
   if(UBX.isCFG_GNSS())                                                          // if CFG-GNSS
   { class UBX_CFG_GNSS *CFG = (class UBX_CFG_GNSS *)UBX.Word;
     uint8_t Blocks = CFG->numConfigBlocks;
-    if(xSemaphoreTake(CONS_Mutex, 20))
+    if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 20))
     { Serial.printf("CFG-GNSS Chan:%d:%d [%d]\n", CFG->numTrkChHw, CFG->numTrkChUse, Blocks);
       for(uint8_t Idx=0; Idx<Blocks; Idx++)
       { class UBX_CFG_GNSS_Block &Block = CFG->Block[Idx];
@@ -1091,7 +1091,7 @@ void vTaskGPS(void* pvParameters)
 
   vTaskDelay(5);                                                         // put some initial delay for lighter startup load
 
-  if(xSemaphoreTake(CONS_Mutex, 25))
+  if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
   { Format_String(CONS_UART_Write, "TaskGPS:");
     Format_String(CONS_UART_Write, "\n");
     xSemaphoreGive(CONS_Mutex); }
@@ -1204,7 +1204,7 @@ void vTaskGPS(void* pvParameters)
         GPS_UART_Write('\n');
 #endif
       }
-      if(xSemaphoreTake(CONS_Mutex, 10))
+      if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 10))
       { Format_String(CONS_UART_Write, "TaskGPS: ");
         Format_UnsDec(CONS_UART_Write, NewBaudRate);
         Format_String(CONS_UART_Write, "bps\n");
