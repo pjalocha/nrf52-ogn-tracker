@@ -81,6 +81,7 @@ void LED_PCB_Flash(uint8_t Time)
   LED_PCB_On(false); }
 */
 
+/*
 uint16_t BatterySense(int Samples)
 { (void)Samples;
   return 0; }
@@ -88,6 +89,7 @@ uint16_t BatterySense(int Samples)
 uint16_t BatterySenseRaw(int Samples)
 { (void)Samples;
   return 0; }
+*/
 
 void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout, bool LogOnly)
 {

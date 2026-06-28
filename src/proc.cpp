@@ -1,5 +1,9 @@
 #include <stdint.h>
 
+// #ifdef WITH_NRF52
+// #include <nrf_temp.h>
+// #endif
+
 #include "hal.h"                      // Hardware Abstraction Layer
 
 #include "proc.h"                     // PROC task: decode/correct received packets
@@ -1097,6 +1101,9 @@ void vTaskPROC(void* pvParameters)
 #endif
     if(Position)
     { Position->EncodeStatus(StatPacket.Packet);             // encode GPS altitude and pressure/temperature/humidity
+// #ifdef WITH_NRF52
+//       if(!StatPacket.Packet.hasTemperature()) StatPacket.Packet.EncodeTemperature((int16_t)((nrf_temp_read()*10+2)/4));
+// #endif
 #ifdef WITH_SX1276
       if(!StatPacket.Packet.hasTemperature()) StatPacket.Packet.EncodeTemperature((int16_t)Radio_ChipTemperature*10);
 #endif

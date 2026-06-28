@@ -35,6 +35,19 @@ uint32_t getUniqueAddress(void) { return getUniqueMAC()&0x00FFFFFF; } // get uni
 
 // =======================================================================================================
 
+static int ADC_Init(void)
+{ // analogReadResolution(12);             // default is 10 bits
+  analogReference(AR_INTERNAL_3_0); }      // so 1024 ADC counts is 3.0V
+
+uint16_t BatterySense(int Samples)
+{ uint16_t Volt=0;
+  for( int Idx=0; Idx<Samples; Idx++)
+  { Volt += analogRead(Battery_Pin); }
+  Volt = (Volt*6+Samples/2)/Samples;
+  return Volt; }                           // [mV]
+
+// =======================================================================================================
+
 FlashParameters Parameters;  // parameters stored in Flash: address, aircraft type, etc.
 
 // =======================================================================================================
@@ -211,12 +224,12 @@ void setup()
   digitalWrite(RF_Power_Pin, HIGH);
 #endif
 
+  ADC_Init();
 /*
 #if defined(Battery_Enable_Pin)
   pinMode(Battery_Enable_Pin, OUTPUT);
   digitalWrite(Battery_Enable_Pin, HIGH);
 #endif
-
 */
 
   CONS_Mutex = xSemaphoreCreateMutex();
