@@ -12,9 +12,12 @@
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
 
+#include "Button2.h"
+
+// =======================================================================================================
+
 SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
-// SemaphoreHandle_t WIFI_Mutex;
 
 // =======================================================================================================
 
@@ -78,6 +81,108 @@ uint16_t BatterySense(int Samples)
 // =======================================================================================================
 
 FlashParameters Parameters;  // parameters stored in Flash: address, aircraft type, etc.
+
+// =======================================================================================================
+
+#ifdef WITH_OLED
+
+static const uint8_t OLED_Page_ID          = 0;
+static const uint8_t OLED_Page_GPS         = 1;
+static const uint8_t OLED_Page_SatSNR      = 2;
+static const uint8_t OLED_Page_Baro        = 3;
+static const uint8_t OLED_Page_RF          = 4;
+static const uint8_t OLED_Page_RFcounts    = 5;
+static const uint8_t OLED_Page_Power       = 6;
+static const uint8_t OLED_Page_RelayOGN    = 7;
+static const uint8_t OLED_Page_RelayADSL   = 8;
+const  uint8_t  OLED_Pages      = 9;       // number of OLED pages
+static uint8_t  OLED_Page       = 0;       // page currently on display
+static uint8_t  OLED_PageChange = 0;       // signal the page has been changed
+static uint8_t  OLED_PageOFF    = 0;       // Backlight to be OFF
+uint8_t         OLED_Rotate     = 0;       // rotate OLED by 180 degrees
+#ifdef WITH_OLED_DIM
+static uint32_t OLED_PageActive = 0;       // [ms] last time the page was active (button pressed)
+const  uint32_t OLED_PageTimeout = (uint32_t)60000*WITH_OLED_DIM;  // [ms] timeout to turn off the TFT backlight
+#endif
+
+static bool OLED_PageAvailable(uint8_t Page)
+{ switch(Page)
+  { case OLED_Page_ID:
+    case OLED_Page_GPS:
+    case OLED_Page_SatSNR:
+    case OLED_Page_RF:
+    case OLED_Page_RFcounts:
+    case OLED_Page_Power:
+    case OLED_Page_RelayOGN:
+    case OLED_Page_RelayADSL:
+      return true;
+    case OLED_Page_Baro:
+#if defined(WITH_BMP180) || defined(WITH_BMP280) || defined(WITH_MS5607) || defined(WITH_BME280) || defined(WITH_MS5611)
+      return true;
+#else
+      return false;
+#endif
+    default:
+      return false; } }
+
+static void OLED_NextPage(void)
+{ for(uint8_t Idx=0; Idx<OLED_Pages; Idx++)
+  { OLED_Page++;
+    if(OLED_Page>=OLED_Pages) OLED_Page=0;
+    if(OLED_PageAvailable(OLED_Page)) break; }
+  OLED_PageChange=1; }
+
+static int OLED_DrawPage(const GPS_Position *GPS)
+{ if(OLED_PageOFF) return 1;
+  if(!OLED_PageAvailable(OLED_Page)) return 0;
+  OLED.clearBuffer();
+  switch(OLED_Page)
+  { case OLED_Page_ID:        OLED_DrawID       (OLED.getU8g2(), GPS); break;
+    case OLED_Page_GPS:       OLED_DrawGPS      (OLED.getU8g2(), GPS); break;
+    case OLED_Page_SatSNR:    OLED_DrawSatSNR   (OLED.getU8g2(), GPS); break;
+    case OLED_Page_Baro:      OLED_DrawBaro     (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RF:        OLED_DrawRF       (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RFcounts:  OLED_DrawRFcounts (OLED.getU8g2(), GPS); break;
+    case OLED_Page_Power:     OLED_DrawPower    (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RelayOGN:  OLED_DrawRelayOGN (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RelayADSL: OLED_DrawRelayADSL(OLED.getU8g2(), GPS); break;
+    default: return 0; }
+  OLED_DrawStatusBar(OLED.getU8g2(), GPS);
+  if(xSemaphoreTake(I2C_Mutex, 50))
+  { OLED.sendBuffer();
+    xSemaphoreGive(I2C_Mutex); }
+  return 1; }
+
+#endif
+
+// =======================================================================================================
+
+static Button2 Button(Button_Pin);
+
+static void Button_Single(Button2 Butt)
+{
+#ifdef WITH_OLED
+  if(OLED_PageOFF)
+    OLED_PageOFF=0;
+  else
+    OLED_NextPage();
+  #ifdef WITH_OLED_DIM
+    OLED_PageActive=millis();
+  #endif
+#endif
+}
+
+static void Button_Double(Button2 Butt) { }
+static void Button_Long(Button2 Butt) { }
+
+static void Button_Init(void)
+{ pinMode(Button_Pin, INPUT);
+  Button.setLongClickTime(2000);
+  Button.setClickHandler(Button_Single);
+  Button.setDoubleClickHandler(Button_Double);
+  Button.setLongClickDetectedHandler(Button_Long); }
+
+
 
 // =======================================================================================================
 
@@ -287,6 +392,7 @@ void setup()
 #endif
 */
 
+  Button_Init();
   InternalFS.begin();
 
   CONS_Mutex = xSemaphoreCreateMutex();
@@ -298,9 +404,9 @@ void setup()
   Wire.setPins(I2C_PinSDA, I2C_PinSCL);
   Wire.begin();
   Wire.setClock(400000);
-  I2C_Scan(Wire, "I2C bus:");
+  // I2C_Scan(Wire, "I2C bus:");
 #ifdef WITH_OLED
-  OLED.setI2CAddress(0x3D << 1);
+  OLED.setI2CAddress(0x3D<<1);
   OLED.begin();
   // OLED.setDisplayRotation(OLED_Rotate ? U8G2_R2 : U8G2_R0);
   OLED.clearBuffer();
@@ -487,9 +593,31 @@ static int ProcessInput(void)
 
 void loop()
 { vTaskDelay(1);
+  Button.loop();
   while(ProcessInput()>0);         // handle console input
   static GPS_Position *PrevGPS=0;
   GPS_Position *GPS = GPS_getPosition();
   if(GPS==0) { GPS = GPS_Pos+GPS_PosIdx; }
-  ///
+#ifdef WITH_OLED
+  if(OLED_PageChange)
+  { OLED_PageChange=0;
+    if(OLED_DrawPage(GPS)==0) OLED_NextPage(); }
+#endif
+  if(GPS!=PrevGPS)
+  {
+#ifdef WITH_OLED
+    OLED_PageChange=1;
+#ifdef WITH_OLED_DIM
+    uint32_t msTime = millis();
+    if(BatteryVoltageRate>0x10) OLED_PageActive = msTime;
+    uint32_t Age = msTime-OLED_PageActive;
+    OLED_PageOFF = Age>OLED_PageTimeout;
+#else
+    OLED_PageOFF = 0;
+#endif
+    if(OLED_PageOFF) OLED.setPowerSave(1);
+               else  OLED.setPowerSave(0);
+#endif
+    PrevGPS=GPS; }
+
 }
