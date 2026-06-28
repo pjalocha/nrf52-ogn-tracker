@@ -385,12 +385,10 @@ void setup()
 #endif
 
   ADC_Init();
-/*
 #if defined(Battery_Enable_Pin)
   pinMode(Battery_Enable_Pin, OUTPUT);
   digitalWrite(Battery_Enable_Pin, HIGH);
 #endif
-*/
 
   Button_Init();
   InternalFS.begin();
