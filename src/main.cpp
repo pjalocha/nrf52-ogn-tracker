@@ -48,6 +48,22 @@ uint32_t getUniqueAddress(void) { return getUniqueMAC()&0x00FFFFFF; } // get uni
 
 // =======================================================================================================
 
+static uint8_t I2C_Scan(TwoWire &Wire, const char *Title)
+{ Serial.printf(Title);
+  uint32_t Time=millis();
+  uint8_t I2Cdev=0;
+  for(uint8_t Addr=0x08; Addr<=0x77; Addr++)
+  { delay(1);
+    Wire.beginTransmission(Addr);
+    if(Wire.endTransmission()==0)
+    { Serial.printf(" 0x%02X", Addr); I2Cdev++; }
+  }
+  Time=millis()-Time;
+  Serial.printf(" %d devices (%dms)\n", I2Cdev, Time);
+  return I2Cdev; }
+
+// =======================================================================================================
+
 static int ADC_Init(void)
 { // analogReadResolution(12);             // default is 10 bits
   analogReference(AR_INTERNAL_3_0); }      // so 1024 ADC counts is 3.0V
@@ -65,7 +81,7 @@ FlashParameters Parameters;  // parameters stored in Flash: address, aircraft ty
 
 // =======================================================================================================
 
-bool CONS_UART_isConnected(void)
+bool CONS_UART_isConnected(void) // { return 0; } // only for tests
 { return Serial && Serial.dtr(); }
 
 int CONS_UART_Read(uint8_t &Byte)
@@ -282,6 +298,7 @@ void setup()
   Wire.setPins(I2C_PinSDA, I2C_PinSCL);
   Wire.begin();
   Wire.setClock(400000);
+  I2C_Scan(Wire, "I2C bus:");
 #ifdef WITH_OLED
   OLED.begin();
   // OLED.setDisplayRotation(OLED_Rotate ? U8G2_R2 : U8G2_R0);

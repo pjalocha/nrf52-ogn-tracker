@@ -28,7 +28,7 @@ void EPD_Init(void)                         // start the e-paper display
   hSPI.begin(EPD_PinSCK, EPD_PinMISO, EPD_PinMOSI, EPD_PinCS);
 #endif
   EPD.epd2.selectSPI(hSPI, SPISettings(4000000, MSBFIRST, SPI_MODE0));
-  EPD.init(115200, true, 10, true);                                         // 10 ms reset
+  EPD.init(0, true, 10, true);                                         // 10 ms reset
   EPD.setRotation(EPD_Rotation); }
 
 // ========================================================================================================================
