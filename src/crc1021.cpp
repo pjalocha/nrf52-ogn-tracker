@@ -12,4 +12,9 @@ uint16_t crc1021(uint16_t CRC, const uint8_t *Data, int Size)
     CRC = crc1021(CRC, Data[Idx]);
   return CRC; }
 
+uint16_t crc1021(uint16_t CRC, const char *Str)
+{ for(int Idx=0; ; Idx++)
+  { uint8_t Byte=Str[Idx]; if(Byte==0) break;
+    CRC = crc1021(CRC, Byte); }
+  return CRC; }
 

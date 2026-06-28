@@ -1,8 +1,16 @@
+
 #include "main.h"
 #include "gps.h"
 #include "proc.h"
 #include "ogn-radio.h"
+
 #include "epd.h"
+#include "oled.h"
+
+#include <Wire.h>
+
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
 
 SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
@@ -263,21 +271,35 @@ void setup()
 #endif
 */
 
+  InternalFS.begin();
+
   CONS_Mutex = xSemaphoreCreateMutex();
   I2C_Mutex = xSemaphoreCreateMutex();
   // WIFI_Mutex = xSemaphoreCreateMutex();
 
   Parameters.setDefault(getUniqueAddress()); // set default parameter values
 
+  Wire.setPins(I2C_PinSDA, I2C_PinSCL);
+  Wire.begin();
+  Wire.setClock(400000);
+#ifdef WITH_OLED
+  OLED.begin();
+  // OLED.setDisplayRotation(OLED_Rotate ? U8G2_R2 : U8G2_R0);
+  OLED.clearBuffer();
+  OLED_DrawLogo(OLED.getU8g2(), 0);
+  OLED.sendBuffer();
+#endif
+
+
   Serial.begin(115200);
   Serial.println();
-  delay(1000);
+  // delay(1000);
   digitalWrite(LED_PinRed, LED_StateOff);
 
   Serial.print("nrf52-ogn-tracker ");
   Serial.print(HARD_NAME);
   Serial.println(" GPS/FreeRTOS check");
-  delay(1000);
+  // delay(1000);
   Serial.print("Build: ");
   Serial.print(__DATE__);
   Serial.print(' ');
@@ -285,6 +307,10 @@ void setup()
   // delay(1000);
   // Serial.print("FreeRTOS tick [Hz] = ");
   // Serial.println(configTICK_RATE_HZ);
+
+  // size_t FStotal = InternalFS.totalBytes();
+  // size_t FSused  = InternalFS.usedBytes();
+  // Serial.printf("InternalFS: Total:%d Used:%d [kB]\n", (int)(FStotal>>10), (int)(FSused>10));
 
   GPS_UART_Init(GPS_getBaudRate());
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS

@@ -296,7 +296,8 @@ static void DrawLogoCopyright(void)
   EPD.setTextColor(GxEPD_BLACK);
   EPD.setFont(0);
   EPD.setTextSize(1);
-  EPD.setRotation(EPD_Rotation);
+  // EPD.setRotation(EPD_Rotation);
+  EPD.setRotation((EPD_Rotation+3)&3);
   EPD.setCursor(28, 193);
   EPD.print(Text);
   EPD.setRotation(EPD_Rotation); }
@@ -519,10 +520,10 @@ void EPD_DrawID(void)
   if(PrevGPSLock) DrawTrafficMap();
             else { DrawLogo(); DrawLogoCopyright(); }
   EPD.setTextColor(GxEPD_BLACK);
-  EPD.setFont(&FreeMonoBold9pt7b);                               // use bold font: more readable
+  EPD.setFont(&FreeMonoBold12pt7b);                              // use bold font: more readable
   sprintf(Line, "%X:%d:%06X %s", Parameters.AcftType, Parameters.AddrType, Parameters.Address, Parameters.Reg);
   // sprintf(Line, "%s:%d:%06X %s", Parameters.AcftTypeName(), Parameters.AddrType, Parameters.Address, Parameters.Reg);
-  EPD.setCursor(0, 195);
+  EPD.setCursor(0, 192);
   EPD.print(Line);
   // drawSpeaker(110, 16, 32, GxEPD_BLACK);
   DrawAcftCount();

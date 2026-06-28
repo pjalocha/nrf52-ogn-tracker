@@ -11,6 +11,8 @@
 #include <Fonts/FreeMonoBold9pt7b.h>
 #include <Fonts/FreeMono12pt7b.h>
 #include <Fonts/FreeMonoBold12pt7b.h>
+#include <Fonts/FreeMonoBold18pt7b.h>
+#include <Fonts/FreeMonoBold24pt7b.h>
 
 void EPD_Init(void);
 void EPD_DrawID(void);

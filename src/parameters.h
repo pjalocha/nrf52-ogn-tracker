@@ -12,6 +12,11 @@
 #include "nvs.h"
 #endif
 
+// #ifdef WITH_NRF52
+// #include <fds.h>
+// #include "crc1021.h"
+// #endif
+
 #ifdef WITH_SAMD21
 #include "flashsize.h"
 #endif
@@ -377,15 +382,39 @@ uint16_t StratuxPort;
 //   Packet.Header.AddrType   = Parameters.AddrType;   // address-type
 //   Packet.Header.Other=1;
 //   Packet.calcAddrParity(); }                        // parity of (part of) the header
-/*
-#ifdef WITH_NRF52
-  int WriteToNVS(int NameID=0x1234, int NameSpaceID=0x5678)
-  { return FlashWrite(NameSpaceID, NameID, this, sizeof(FlashParameters)); }
 
-  int ReadFromNVS(int NameID=0x1234, int NameSpaceID=0x5678)
-  { return FlashRead(NameSpaceID, NameID, this, sizeof(FlashParameters)); }
+/* well, this does not work, apparently
+#ifdef WITH_NRF52
+  int WriteToNVS(const char *Name="Parameters", const char *NameSpace="TRACKER")
+  { fds_record_desc_t desc = {0};
+    fds_find_token_t tok = {0};
+    uint16_t ID = crc1021(NameSpace);
+    uint16_t Key = crc1021(Name);
+    fds_record_t rec;
+    rec.file_id           = ID;
+    rec.key               = Key;
+    rec.data.p_data       = this;
+    rec.data.length_words = (sizeof(FlashParameters)+3)/4;
+    if(fds_record_find(ID, Key, &desc, &tok)==FDS_SUCCESS)
+      return fds_record_update(&desc, &rec);
+    return fds_record_write(&desc, &rec); }
+
+  int ReadFromNVS(const char *Name="Parameters", const char *NameSpace="TRACKER")
+  { fds_record_desc_t desc;
+    fds_find_token_t tok = {0};
+    uint16_t ID = crc1021(NameSpace);
+    uint16_t Key = crc1021(Name);
+    if(fds_record_find(ID, Key, &desc, &tok)!=FDS_SUCCESS)return -2;
+    fds_flash_record_t flash;
+    if (fds_record_open(&desc, &flash) != FDS_SUCCESS) return -1;
+    if (flash.p_header->length_words*4 != sizeof(FlashParameters))
+    { fds_record_close(&desc); return -2; }
+    memcpy(this, flash.p_data, sizeof(FlashParameters));
+    fds_record_close(&desc);
+    return 0; }
 #endif
 */
+
 #ifdef WITH_ESP32
   esp_err_t WriteToNVS(const char *Name="Parameters", const char *NameSpace="TRACKER")
   { nvs_handle Handle;
