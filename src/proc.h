@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef WITH_THINKNODE_M5
+#if defined(WITH_THINKNODE_M5) || defined(WITH_EPAPER)
 extern uint8_t AlarmThresh;
 #endif
 
@@ -29,4 +29,3 @@ extern Relay_PrioQueue<ADSL_RxPacket, RelayQueueSize>           ADSL_RelayQueue;
   extern "C"
 #endif
  void vTaskPROC(void* pvParameters);
-

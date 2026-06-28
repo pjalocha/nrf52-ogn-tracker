@@ -2,6 +2,7 @@
 #include "gps.h"
 #include "proc.h"
 #include "ogn-radio.h"
+#include "epd.h"
 
 SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
@@ -61,7 +62,7 @@ int CONS_UART_Read(uint8_t &Byte)
   Byte = (uint8_t)Serial.read(); return 1; }
 
 void CONS_UART_Write(char Byte)
-{ if(CONS_UART_Free()<8) return;
+{ // if(CONS_UART_Free()<8) return;
   Serial.write((uint8_t)Byte); }
 
 int CONS_UART_Free(void)
@@ -285,6 +286,9 @@ void setup()
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
   xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 1, NULL);  // transmit/receive packets
   xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 0, NULL);  // process received packets, prepare packets for transmission
+#ifdef WITH_EPAPER
+  xTaskCreate(EPD_Task    ,  "EPD"  ,  3000, NULL, 0, NULL);  // update e-paper display
+#endif
 
 }
 

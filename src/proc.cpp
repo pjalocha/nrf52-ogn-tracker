@@ -38,7 +38,7 @@ static GDL90_REPORT    GDL_REPORT;
 #include "mesht-proto.h"
 #endif
 
-#ifdef WITH_THINKNODE_M5
+#if defined(WITH_THINKNODE_M5) || defined(WITH_EPAPER)
 uint8_t AlarmThresh = 4;              // 0: all alarms, 1: only 1 or higher, 2: only 2 or higher, 3: only three or higher, 4: all blocked
 #else
 const uint8_t AlarmThresh = 0;
