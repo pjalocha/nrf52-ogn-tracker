@@ -412,11 +412,25 @@ void setup()
   OLED.sendBuffer();
 #endif
 
-
   Serial.begin(115200);
   Serial.println();
   // delay(1000);
   digitalWrite(LED_PinRed, LED_StateOff);
+
+#ifdef WITH_BEEPER
+  Beep_Init();
+#ifdef WITH_BEEPER_GEN
+  Play_Morse('S');
+#else
+  Play(Play_Vol_1 | Play_Oct_0 | 0x05, 250);
+  Play(Play_Vol_1 | Play_Oct_0 | 0x08, 250);
+  Play(Play_Vol_0 | Play_Oct_0 | 0x00, 100);
+#endif
+  // Play_Morse(' ');
+  // Play_Morse('O');
+  // Play_Morse('G');
+  // Play_Morse('N');
+#endif
 
   Serial.print("nrf52-ogn-tracker ");
   Serial.print(HARD_NAME);
@@ -591,6 +605,9 @@ static int ProcessInput(void)
 
 void loop()
 { vTaskDelay(1);
+#ifdef WITH_BEEPER
+  Play_TimerCheck(1);              // handle playing notes on the buzzer
+#endif
   Button.loop();
   while(ProcessInput()>0);         // handle console input
   static GPS_Position *PrevGPS=0;

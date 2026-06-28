@@ -2,7 +2,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "hal.h"
+#include "main.h"
+
 #include "gps.h"
 #include "nmea.h"
 #include "ubx.h"
