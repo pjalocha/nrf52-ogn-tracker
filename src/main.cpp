@@ -7,7 +7,11 @@ SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
 // SemaphoreHandle_t WIFI_Mutex;
 
-// uint32_t RxProc_Count[8];  // temperary, the real is in PROC task
+// =======================================================================================================
+
+uint8_t PowerMode = 2;
+Word32x2 Random = { .Word = 0x123456789ABCDEF0ULL };
+HardItems HardwareStatus = { .Flags = 0 };
 
 // =======================================================================================================
 
@@ -40,10 +44,10 @@ static int ADC_Init(void)
   analogReference(AR_INTERNAL_3_0); }      // so 1024 ADC counts is 3.0V
 
 uint16_t BatterySense(int Samples)
-{ uint16_t Volt=0;
+{ uint32_t Volt=0;
   for( int Idx=0; Idx<Samples; Idx++)
   { Volt += analogRead(Battery_Pin); }
-  Volt = (Volt*6+Samples/2)/Samples;
+  Volt = (Volt*11+Samples)/(Samples*2);
   return Volt; }                           // [mV]
 
 // =======================================================================================================
@@ -202,6 +206,27 @@ bool GPS_PPS_isOn(void)
 
 // =======================================================================================================
 
+void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout, bool LogOnly)
+{ (void)Timestamp;
+  if (LogOnly || Line==0 || LineLen <= 0) return;
+  if(!xSemaphoreTake(CONS_Mutex, msTimeout)) return;
+  Serial.write((const uint8_t *)Line, LineLen);
+  xSemaphoreGive(CONS_Mutex); }
+
+void SysLog_Line(const char *Line, bool Timestamp, int msTimeout, bool LogOnly)
+{ if (Line==0) return;
+  SysLog_Line(Line, (int)strlen(Line), Timestamp, msTimeout, LogOnly); }
+
+void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout)
+{ SysLog_Line(Line, LineLen, Timestamp, msTimeout, false); }
+
+void SysLog_Line(const char *Line, bool Timestamp, int msTimeout)
+{ SysLog_Line(Line, Timestamp, msTimeout, false); }
+
+// =======================================================================================================
+
+static char Line[512];
+
 void setup()
 {
   pinMode(LED_PinRed, OUTPUT);
@@ -262,7 +287,156 @@ void setup()
 
 }
 
+// ===================================================================================================================
+
+static NMEA_RxMsg NMEA;
+
+static void PrintParameters(void)                              // print parameters stored in Flash
+{ Parameters.Print(Line);
+  if(!xSemaphoreTake(CONS_Mutex, 100)) return;                 // ask exclusivity on UART1
+  Format_String(CONS_UART_Write, Line);
+  xSemaphoreGive(CONS_Mutex); }                                // give back UART1 to other tasks
+
+static void PrintPOGNS(void)                                   // print parameters in the $POGNS form
+{ if(!xSemaphoreTake(CONS_Mutex, 100)) return;
+  Parameters.WritePOGNS(Line);
+  Format_String(CONS_UART_Write, Line);
+  Parameters.WritePOGNS_Pilot(Line);
+  Format_String(CONS_UART_Write, Line);
+  Parameters.WritePOGNS_Acft(Line);
+  Format_String(CONS_UART_Write, Line);
+  Parameters.WritePOGNS_Comp(Line);
+  Format_String(CONS_UART_Write, Line);
+#ifdef WITH_AP
+  Parameters.WritePOGNS_AP(Line);
+  Format_String(CONS_UART_Write, Line);
+#endif
+#ifdef WITH_STRATUX
+  Parameters.WritePOGNS_Stratux(Line);
+  Format_String(CONS_UART_Write, Line);
+#endif
+  xSemaphoreGive(CONS_Mutex); }
+
+#ifdef WITH_CONFIG
+static void ReadParameters(void)  // read parameters requested by the user in the NMEA sent.
+{ if((!NMEA.hasCheck()) || NMEA.isChecked() )
+  { PrintParameters();
+    if(NMEA.Parms==0) { PrintPOGNS(); return; }                              // if no parameter given
+    Parameters.ReadPOGNS(NMEA);
+    PrintParameters();
+    // esp_err_t Err = Parameters.WriteToNVS();                                                  // erase and write the parameters into >
+  }
+}
+#endif
+
+#ifdef WITH_LOOKOUT
+static void ListTraffic(void)
+{ char Line[160];
+  for( uint8_t Idx=0; Idx<Look.MaxTargets; Idx++)
+  { const LookOut_Target *Tgt = Look.Target+Idx; if(!Tgt->Alloc) continue;
+    int Len=Tgt->Print(Line);
+    Line[Len++]=' ';
+    Len+=Tgt->Pos.Print(Line+Len);
+    Serial.printf("%2d: %s\n", Idx, Line); }
+}
+#endif
+
+#ifdef WITH_CONFIG
+static void ReadPFLAC(void)  // read parameters requested by the user in the NMEA
+{ if((!NMEA.hasCheck()) || NMEA.isChecked() )
+  { PrintParameters();
+    // if(NMEA.Parms==0) { PrintPOGNS(); return; }                              // if no parameter given
+    Parameters.ReadPFLAC(NMEA);
+    PrintParameters();
+    // esp_err_t Err = Parameters.WriteToNVS();                                                  // erase and write the parameters into >
+  }
+}
+#endif
+
+static void ReadPFLA(void)  // read and interprete $PFLAx NMEA
+{ if(NMEA.isPFLAC()) return ReadPFLAC();
+
+}
+
+static void ProcessNMEA(void)     // process a valid NMEA that we got to the console
+{
+#ifdef WITH_CONFIG
+  if(NMEA.isPOGNS()) ReadParameters();
+  if(NMEA.isPFLA()) ReadPFLA();
+#endif
+}
+
+static void ProcessCtrlC(void)                                  // print system state to the console
+{ if(!xSemaphoreTake(CONS_Mutex, 50)) return;
+  Parameters.Print(Line);
+  Format_String(CONS_UART_Write, Line);
+  Format_String(CONS_UART_Write, "GPS: ");
+  Format_UnsDec(CONS_UART_Write, GPS_getBaudRate(), 1);
+  Format_String(CONS_UART_Write, "bps");
+  CONS_UART_Write(',');
+  Format_UnsDec(CONS_UART_Write, GPS_PosPeriod, 4, 3);
+  CONS_UART_Write('s');
+  if(GPS_Status.PPS)         Format_String(CONS_UART_Write, ",PPS");
+  if(GPS_Status.NMEA)        Format_String(CONS_UART_Write, ",NMEA");
+  if(GPS_Status.UBX)         Format_String(CONS_UART_Write, ",UBX");
+  if(GPS_Status.MAV)         Format_String(CONS_UART_Write, ",MAV");
+  if(GPS_Status.BaudConfig)  Format_String(CONS_UART_Write, ",BaudOK");
+  if(GPS_Status.ModeConfig)  Format_String(CONS_UART_Write, ",ModeOK");
+  CONS_UART_Write('\r'); CONS_UART_Write('\n');
+  Parameters.Write(CONS_UART_Write);                         // write the parameters to the console
+
+  Format_String(CONS_UART_Write, "Batt:");
+  Format_UnsDec(CONS_UART_Write, (10*BatteryVoltage+128)>>8, 5, 4);
+  Format_String(CONS_UART_Write, "V ");
+  Format_SignDec(CONS_UART_Write, (600*BatteryVoltageRate+128)>>8, 3, 1);
+  Format_String(CONS_UART_Write, "mV/min\n");
+
+  xSemaphoreGive(CONS_Mutex); }
+
+static void ProcessCtrlX(void)
+{ static uint32_t LastTime=0;
+  uint32_t Time=millis();
+  uint32_t Diff=Time-LastTime;
+  if(Diff<1000)
+  { // SysLog_Line("Restart from console", 1, 50);
+    // ShutDownReq=1;
+    vTaskDelay(2000);
+    // ESP.restart();
+    NVIC_SystemReset(); }
+  LastTime=Time; } 
+
+static int ProcessInput(void)
+{
+  const uint8_t CtrlB = 'B'-'@';
+  const uint8_t CtrlC = 'C'-'@';
+  const uint8_t CtrlF = 'F'-'@';
+  const uint8_t CtrlL = 'L'-'@';
+  const uint8_t CtrlO = 'O'-'@';
+  const uint8_t CtrlP = 'P'-'@';
+  const uint8_t CtrlT = 'T'-'@';
+  const uint8_t CtrlX = 'X'-'@';
+
+  int Count=0;
+  for( ; ; )
+  { uint8_t Byte; int Err=CONS_UART_Read(Byte); if(Err<=0) break; // get byte from console, if none: exit the loop
+    Count++;
+    if(Byte==CtrlC) ProcessCtrlC();                                // if Ctrl-C: print parameters
+#ifdef WITH_LOOKOUT
+    if(Byte==CtrlT) ListTraffic();                                 // if Ctrl-T: print traffic
+#endif
+    if(Byte==CtrlX) ProcessCtrlX();                                // double Ctrl-X restarts the system
+    NMEA.ProcessByte(Byte);                                       // pass the byte through the NMEA processor
+    if(NMEA.isComplete())                                         // if complete NMEA:
+    { ProcessNMEA();                                              // interpret the NMEA
+      NMEA.Clear(); }                                             // clear the NMEA processor for the next sentence
+  }
+  return Count; }
+
 void loop()
-{ vTaskDelay(configTICK_RATE_HZ/10);
+{ vTaskDelay(1);
+  while(ProcessInput()>0);         // handle console input
+  static GPS_Position *PrevGPS=0;
+  GPS_Position *GPS = GPS_getPosition();
+  if(GPS==0) { GPS = GPS_Pos+GPS_PosIdx; }
   ///
 }

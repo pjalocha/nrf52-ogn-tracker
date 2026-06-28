@@ -723,11 +723,13 @@ static void GPS_NMEA(bool Correct=1)                                        // w
         CONS_UART_Write('\r'); CONS_UART_Write('\n');
         xSemaphoreGive(CONS_Mutex); }
     }
+/*
     if(NMEA.Len+2<=sizeof(Line))
     { for(int Idx=0; Idx<NMEA.Len; Idx++) Line[Idx]=NMEA.Data[Idx];
       Line[NMEA.Len  ]='\r';
       Line[NMEA.Len+1]='\n';
       SysLog_Line(Line, NMEA.Len+2, 0, 10, 1); }
+*/
   }
 }
 
