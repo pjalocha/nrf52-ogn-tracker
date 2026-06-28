@@ -144,7 +144,7 @@ Relay_PrioQueue<ADSL_RxPacket, RelayQueueSize>           ADSL_RelayQueue;       
 static void PrintRelayQueue(uint8_t Idx)                    // for debug
 { uint8_t Len=0;
   // Len+=Format_String(Line+Len, "");
-  xSemaphoreTake(CONS_Mutex, 25);
+  if(!xSemaphoreTake(CONS_Mutex, 25) return;
   // Format_String(CONS_UART_Write, Line, Len);
   Line[Len++]='['; Len+=Format_Hex(Line+Len, Idx); Line[Len++]=']'; Line[Len++]=' ';
   Len+=OGN_RelayQueue.Print(Line+Len);
@@ -339,21 +339,21 @@ static uint16_t ReadBattery(void)
   // PrevBattVolt = BattVolt;
 
 #ifdef DEBUG_PRINT
-  xSemaphoreTake(CONS_Mutex, 25);
-  Format_String(CONS_UART_Write, "Battery: ");
-  // Format_UnsDec(CONS_UART_Write, BattVolt);
-  // CONS_UART_Write(' ');
-  // Format_UnsDec(CONS_UART_Write, PrevBattVolt);
-  // CONS_UART_Write(' ');
-  // Format_UnsDec(CONS_UART_Write, BatteryVoltage, 2);
-  // CONS_UART_Write(' ');
-  // Format_SignDec(CONS_UART_Write, BatteryVoltageRate, 2);
-  // CONS_UART_Write(' ');
-  Format_UnsDec(CONS_UART_Write, (10*BatteryVoltage+128)>>8, 5, 4);
-  Format_String(CONS_UART_Write, "V ");
-  Format_SignDec(CONS_UART_Write, (600*BatteryVoltageRate+128)>>8, 3, 1);
-  Format_String(CONS_UART_Write, "mV/min\n");
-  xSemaphoreGive(CONS_Mutex);
+  if(xSemaphoreTake(CONS_Mutex, 25))
+  { Format_String(CONS_UART_Write, "Battery: ");
+    // Format_UnsDec(CONS_UART_Write, BattVolt);
+    // CONS_UART_Write(' ');
+    // Format_UnsDec(CONS_UART_Write, PrevBattVolt);
+    // CONS_UART_Write(' ');
+    // Format_UnsDec(CONS_UART_Write, BatteryVoltage, 2);
+    // CONS_UART_Write(' ');
+    // Format_SignDec(CONS_UART_Write, BatteryVoltageRate, 2);
+    // CONS_UART_Write(' ');
+    Format_UnsDec(CONS_UART_Write, (10*BatteryVoltage+128)>>8, 5, 4);
+    Format_String(CONS_UART_Write, "V ");
+    Format_SignDec(CONS_UART_Write, (600*BatteryVoltageRate+128)>>8, 3, 1);
+    Format_String(CONS_UART_Write, "mV/min\n");
+    xSemaphoreGive(CONS_Mutex); }
 #endif
 // #endif
   return BattVolt; }
@@ -428,7 +428,7 @@ static void ReadStatus(OGN_Packet &Packet)
     // LogLine(Line);
     // if(CONS_UART_Free()>=128)
     if(xSemaphoreTake(CONS_Mutex, 25))
-    { Format_String(CONS_UART_Write, Line, 0, Len);                          // send the NMEA out to the console
+    { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);                          // send the NMEA out to the console
       xSemaphoreGive(CONS_Mutex); }
     SysLog_Line(Line, Len, 0, 25, 1);
   }
@@ -622,7 +622,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
       { Len=RxPacket->WritePFLAA(Line, Warn, LatDist, LonDist, RxPacket->Packet.DecodeAltitude()-GPS_Altitude/10); }
       if(Len>0)
       if(xSemaphoreTake(CONS_Mutex, 25))
-      { Format_String(CONS_UART_Write, Line, 0, Len);
+      { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
       if(Len>0) SysLog_Line(Line, Len, 0, 25, 1);
     }
@@ -751,7 +751,7 @@ static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t
       { Len=RxPacket->Packet.WritePFLAA(Line, Warn, LatDist, LonDist, RxPacket->Packet.getAlt()-(GPS_Altitude+GPS_GeoidSepar)/10); }
       if(Len>0)
       if(xSemaphoreTake(CONS_Mutex, 25))
-      { Format_String(CONS_UART_Write, Line, 0, Len);
+      { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
       if(Len>0) SysLog_Line(Line, Len, 0, 25, 1);
     }
@@ -1009,14 +1009,14 @@ void vTaskPROC(void* pvParameters)
     { FSK_RxPacket *RxPkt = FSK_RxFIFO.getRead();                        // check for new received packets
       if(RxPkt==0) break;                                                // if there is a new received packet
 #ifdef DEBUG_PRINT
-      xSemaphoreTake(CONS_Mutex, 25);
-      Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60, 2);
-      CONS_UART_Write('.');
-      Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
-      Format_String(CONS_UART_Write, " FSK_RxFIFO -> ");
-      RxPkt->Print(CONS_UART_Write);
-      // CONS_UART_Write('\r'); CONS_UART_Write('\n');
-      xSemaphoreGive(CONS_Mutex);
+      if(xSemaphoreTake(CONS_Mutex, 25))
+      { Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60, 2);
+        CONS_UART_Write('.');
+        Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
+        Format_String(CONS_UART_Write, " FSK_RxFIFO -> ");
+        RxPkt->Print(CONS_UART_Write);
+        // CONS_UART_Write('\r'); CONS_UART_Write('\n');
+        xSemaphoreGive(CONS_Mutex); }
 #endif
       DecodeRxPacket(RxPkt);                                            // decode and process the received packet
       FSK_RxFIFO.Read(); }                                              // remove this packet from the queue
@@ -1055,23 +1055,23 @@ void vTaskPROC(void* pvParameters)
 #endif
     // GPS_Position *Position = GPS_getPosition();
 #ifdef DEBUG_PRINT
-    xSemaphoreTake(CONS_Mutex, 25);
-    // Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60, 2);
-    // Format_UnsDec(CONS_UART_Write, Time%60, 2);
-    Format_UnsDec(CONS_UART_Write, Time, 10);
-    CONS_UART_Write('.');
-    // Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
-    Format_UnsDec(CONS_UART_Write, msTime, 3);
-    Format_String(CONS_UART_Write, " -> getPos(");
-    Format_UnsDec(CONS_UART_Write, SlotTime%60, 2);
-    Format_String(CONS_UART_Write, ") => ");
-    if(Position)
-    { Format_UnsDec(CONS_UART_Write, (uint16_t)BestIdx);
-      CONS_UART_Write(':');
-      Format_SignDec(CONS_UART_Write, BestResid, 4, 3);
-      Format_String(CONS_UART_Write, "s"); }
-    Format_String(CONS_UART_Write, "\n");
-    xSemaphoreGive(CONS_Mutex);
+    if(xSemaphoreTake(CONS_Mutex, 25))
+    { // Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60, 2);
+      // Format_UnsDec(CONS_UART_Write, Time%60, 2);
+      Format_UnsDec(CONS_UART_Write, Time, 10);
+      CONS_UART_Write('.');
+      // Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
+      Format_UnsDec(CONS_UART_Write, msTime, 3);
+      Format_String(CONS_UART_Write, " -> getPos(");
+      Format_UnsDec(CONS_UART_Write, SlotTime%60, 2);
+      Format_String(CONS_UART_Write, ") => ");
+      if(Position)
+      { Format_UnsDec(CONS_UART_Write, (uint16_t)BestIdx);
+        CONS_UART_Write(':');
+        Format_SignDec(CONS_UART_Write, BestResid, 4, 3);
+        Format_String(CONS_UART_Write, "s"); }
+      Format_String(CONS_UART_Write, "\n");
+      xSemaphoreGive(CONS_Mutex); }
 #endif
 
 #ifdef WITH_GDL90
@@ -1133,12 +1133,12 @@ void vTaskPROC(void* pvParameters)
       }
 
 #ifdef DEBUG_PRINT
-      xSemaphoreTake(CONS_Mutex, 25);
-      Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60);
-      CONS_UART_Write('.');
-      Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
-      Format_String(CONS_UART_Write, " -> Sent\n");
-      xSemaphoreGive(CONS_Mutex);
+      if(xSemaphoreTake(CONS_Mutex, 25))
+      { Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60);
+        CONS_UART_Write('.');
+        Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
+        Format_String(CONS_UART_Write, " -> Sent\n");
+        xSemaphoreGive(CONS_Mutex); }
 #endif // DEBUG_PRINT
       PosTime=Position->getUnixTime();
       PosPacket.Packet.HeaderWord=0;
@@ -1245,7 +1245,7 @@ void vTaskPROC(void* pvParameters)
 #ifdef WITH_PFLAA
       if(Parameters.Verbose & 0b01)
       { if(xSemaphoreTake(CONS_Mutex, 25))
-        { Look.WritePFLA(CONS_UART_Write);                                // produce PFLAU and PFLAA for all tracked targets
+        { if(CONS_UART_Free()>80) Look.WritePFLA(CONS_UART_Write);                                // produce PFLAU and PFLAA for all tracked targets
           xSemaphoreGive(CONS_Mutex); }
         Look.WritePFLA(SysLog_Line, 0, 25, 1);                            // write all PFLA'a to the console/sys-log
       }
@@ -1253,7 +1253,7 @@ void vTaskPROC(void* pvParameters)
       if(Parameters.Verbose & 0b01)
       { uint8_t Len=Look.WritePFLAU(Line);                                // $PFLAU, overall status
         if(xSemaphoreTake(CONS_Mutex, 25))
-        { Format_String(CONS_UART_Write, Line, 0, Len);
+        { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
           xSemaphoreGive(CONS_Mutex); }
         SysLog_Line(Line, Len, 0, 25, 1);
       }
@@ -1307,7 +1307,7 @@ void vTaskPROC(void* pvParameters)
       if(Parameters.Verbose & 0b01)
       { uint8_t Len=Look.WritePFLAU(Line);                                // $PFLAU, overall status
         if(xSemaphoreTake(CONS_Mutex, 25))
-        { Format_String(CONS_UART_Write, Line, 0, Len);
+        { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
           xSemaphoreGive(CONS_Mutex); }
         SysLog_Line(Line, Len, 0, 25, 1);
       }
@@ -1330,12 +1330,12 @@ void vTaskPROC(void* pvParameters)
       TxPacket->Packet = PosPacket.Packet;                            // copy the position packet
       TxPacket->Packet.Whiten(); TxPacket->calcFEC();                 // whiten and calculate FEC code
 #ifdef DEBUG_PRINT
-      xSemaphoreTake(CONS_Mutex, 25);
-      Format_UnsDec(CONS_UART_Write, PosTime);
-      Format_String(CONS_UART_Write, " (_) TxFIFO <- ");
-      Format_Hex(CONS_UART_Write, TxPacket->Packet.HeaderWord);
-      CONS_UART_Write('\r'); CONS_UART_Write('\n');
-      xSemaphoreGive(CONS_Mutex);
+      if(xSemaphoreTake(CONS_Mutex, 25))
+      { Format_UnsDec(CONS_UART_Write, PosTime);
+        Format_String(CONS_UART_Write, " (_) TxFIFO <- ");
+        Format_Hex(CONS_UART_Write, TxPacket->Packet.HeaderWord);
+        CONS_UART_Write('\r'); CONS_UART_Write('\n');
+        xSemaphoreGive(CONS_Mutex); }
 #endif // DEBUG_PRINT
       XorShift32(Random.RX);
       if(PosTime && ((Random.RX&0x7)==0) )                              // send if some position in the packet and at 1/8 normal rate
@@ -1346,9 +1346,9 @@ void vTaskPROC(void* pvParameters)
     // char Line[128];
     Line[0]='0'+OGN_TxFIFO.Full(); Line[1]=' ';                  // print number of packets in the TxFIFO
     OGN_RelayQueue.Print(Line+2);                                   // dump the relay queue
-    xSemaphoreTake(CONS_Mutex, 25);
-    Format_String(CONS_UART_Write, Line);
-    xSemaphoreGive(CONS_Mutex);
+    if(xSemaphoreTake(CONS_Mutex, 25))
+    { Format_String(CONS_UART_Write, Line);
+      xSemaphoreGive(CONS_Mutex); }
 #endif // DEBUG_PRINT
 
 #ifdef WITH_FANET

@@ -61,7 +61,8 @@ int CONS_UART_Read(uint8_t &Byte)
   Byte = (uint8_t)Serial.read(); return 1; }
 
 void CONS_UART_Write(char Byte)
-{ Serial.write((uint8_t)Byte); }
+{ if(CONS_UART_Free()<8) return;
+  Serial.write((uint8_t)Byte); }
 
 int CONS_UART_Free(void)
 { return Serial.availableForWrite(); }
@@ -210,7 +211,7 @@ void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout, b
 { (void)Timestamp;
   if (LogOnly || Line==0 || LineLen <= 0) return;
   if(!xSemaphoreTake(CONS_Mutex, msTimeout)) return;
-  Serial.write((const uint8_t *)Line, LineLen);
+  if(CONS_UART_Free()>LineLen) Serial.write((const uint8_t *)Line, LineLen);
   xSemaphoreGive(CONS_Mutex); }
 
 void SysLog_Line(const char *Line, bool Timestamp, int msTimeout, bool LogOnly)
