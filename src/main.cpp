@@ -300,6 +300,7 @@ void setup()
   Wire.setClock(400000);
   I2C_Scan(Wire, "I2C bus:");
 #ifdef WITH_OLED
+  OLED.setI2CAddress(0x3D << 1);
   OLED.begin();
   // OLED.setDisplayRotation(OLED_Rotate ? U8G2_R2 : U8G2_R0);
   OLED.clearBuffer();
