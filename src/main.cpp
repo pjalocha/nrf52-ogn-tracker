@@ -178,11 +178,19 @@ static void Button_Single(Button2 Butt)
 }
 
 static void Button_Double(Button2 Butt) { }
-static void Button_Long(Button2 Butt) { }
+
+static void Button_Long(Button2 Butt)
+{ PowerMode=0;
+  ///
+  delay(2000);
+  NRF_POWER->SYSTEMOFF = 1;
+  __DSB();
+  __WFI();   // never returns
+}
 
 static void Button_Init(void)
 { pinMode(Button_Pin, INPUT);
-  Button.setLongClickTime(2000);
+  Button.setLongClickTime(000);
   Button.setClickHandler(Button_Single);
   Button.setDoubleClickHandler(Button_Double);
   Button.setLongClickDetectedHandler(Button_Long); }
