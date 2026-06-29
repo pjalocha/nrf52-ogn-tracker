@@ -9,6 +9,9 @@
 #include <string.h>
 #include <math.h>
 
+// #define millis() (xTaskGetTickCount())
+#define xTaskGetTickCount() (millis())
+
 const uint8_t KNOB_Tick = 15;
 #include "play.h"
 
@@ -145,8 +148,10 @@ void LED_PCB_On(bool ON = 1);
 void LED_PCB_Off(void);
 void LED_PCB_Flash(uint8_t Time = 100);
 
+int16_t readMCUtemperature(void);
+
 uint16_t BatterySense(int Samples = 4);
-uint16_t BatterySenseRaw(int Samples = 4);
+// uint16_t BatterySenseRaw(int Samples = 4);
 
 void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout, bool LogOnly);
 void SysLog_Line(const char *Line, bool Timestamp, int msTimeout, bool LogOnly);

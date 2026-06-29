@@ -489,7 +489,7 @@ static int Radio_TxFSK(const uint8_t *Packet, uint8_t Len)
     usLeft = usTxTime-usTime;                                          // [usec] time left till the end of packet
     if(Radio_IRQ()) break;                                 // raised IRQ => end-of-data
     // uint16_t Flags=Radio.getIRQFlags(); if(Flags & RADIOLIB_SX127X_CLEAR_IRQ_FLAG_TX_DONE) break;
-    if(usLeft>1500) { delay(1); continue; }
+    if(usLeft>1500) { vTaskDelay(1); continue; }
     if(usLeft<(-40)) break;
     taskYIELD(); }
   // State=Radio.finishTransmit();                         // adds a long delay and leaves a significant tail
@@ -1318,6 +1318,7 @@ void Radio_Task(void *Parms)
     { if(msTimeLeft>0) vTaskDelay(msTimeLeft); }
 #endif // WITH_FANET_SLOT
 
+    /// debug print
     // if(xSemaphoreTake(CONS_Mutex, 20))
     // { Serial.printf("Radio: %10d:%8d %4dms\n", TimeRef.UTC, TimeRef.sysTime, msTime);
     //   xSemaphoreGive(CONS_Mutex); }

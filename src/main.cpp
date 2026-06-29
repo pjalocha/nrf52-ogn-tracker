@@ -67,8 +67,16 @@ static uint8_t I2C_Scan(TwoWire &Wire, const char *Title)
 
 // =======================================================================================================
 
+int16_t readMCUtemperature(void)
+{ NRF_TEMP->TASKS_START = 1;
+  while(!NRF_TEMP->EVENTS_DATARDY);
+  int32_t Temp = NRF_TEMP->TEMP;
+  NRF_TEMP->EVENTS_DATARDY = 0;
+  NRF_TEMP->TASKS_STOP = 1;
+  return Temp=(Temp*10+2)/4; }             // [0.1degC]
+
 static int ADC_Init(void)
-{ // analogReadResolution(12);             // default is 10 bits
+{ // analogReadResolution(12);             // default is 10 bits, no need to change
   analogReference(AR_INTERNAL_3_0); }      // so 1024 ADC counts is 3.0V
 
 uint16_t BatterySense(int Samples)
