@@ -9,8 +9,13 @@
 #include <string.h>
 #include <math.h>
 
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+
 // #define millis() (xTaskGetTickCount())
 #define xTaskGetTickCount() (millis())
+
+// #define esp_err_t int
 
 const uint8_t KNOB_Tick = 15;
 #include "play.h"

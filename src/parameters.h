@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-// #include "main.h"
+#include "main.h"
 
 #include "ogn.h"
 
@@ -414,6 +414,24 @@ uint16_t StratuxPort;
     return 0; }
 #endif
 */
+
+#ifdef WITH_NRF52
+  int WriteToNVS(const char *Name="Parameters")
+  { Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_WRITE); if (!ParmFile) return -1;
+    int Size = sizeof(FlashParameters);
+    int Written = ParmFile.write((const uint8_t *)this, Size);
+    ParmFile.close();
+    if(Written!=Size) return -2;
+    return Written; }
+
+  int ReadFromNVS(const char *Name="Parameters")
+  { Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_READ); if (!ParmFile) return -1;
+    int Size = sizeof(FlashParameters);
+    int Read = ParmFile.write((uint8_t *)this, Size);
+    ParmFile.close();
+    if(Read!=Size) return -2;
+    return Read; }
+#endif
 
 #ifdef WITH_ESP32
   esp_err_t WriteToNVS(const char *Name="Parameters", const char *NameSpace="TRACKER")

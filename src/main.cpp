@@ -9,9 +9,6 @@
 
 #include <Wire.h>
 
-#include <Adafruit_LittleFS.h>
-#include <InternalFileSystem.h>
-
 #include "Button2.h"
 
 // =======================================================================================================
@@ -400,12 +397,13 @@ void setup()
 
   Button_Init();
   InternalFS.begin();
+  Parameters.setDefault(getUniqueAddress()); // set default parameter values
+  if(Parameters.ReadFromNVS()<0)             // try to get parameters from NVS
+  { Parameters.WriteToNVS(); }
 
   CONS_Mutex = xSemaphoreCreateMutex();
   I2C_Mutex = xSemaphoreCreateMutex();
   // WIFI_Mutex = xSemaphoreCreateMutex();
-
-  Parameters.setDefault(getUniqueAddress()); // set default parameter values
 
   Wire.setPins(I2C_PinSDA, I2C_PinSCL);
   Wire.begin();
@@ -503,7 +501,7 @@ static void ReadParameters(void)  // read parameters requested by the user in th
     if(NMEA.Parms==0) { PrintPOGNS(); return; }                              // if no parameter given
     Parameters.ReadPOGNS(NMEA);
     PrintParameters();
-    // esp_err_t Err = Parameters.WriteToNVS();                                                  // erase and write the parameters into >
+    Parameters.WriteToNVS();                                                  // erase and write the parameters into >
   }
 }
 #endif
@@ -527,7 +525,7 @@ static void ReadPFLAC(void)  // read parameters requested by the user in the NME
     // if(NMEA.Parms==0) { PrintPOGNS(); return; }                              // if no parameter given
     Parameters.ReadPFLAC(NMEA);
     PrintParameters();
-    // esp_err_t Err = Parameters.WriteToNVS();                                                  // erase and write the parameters into >
+    Parameters.WriteToNVS();                                                  // erase and write the parameters into >
   }
 }
 #endif
@@ -564,11 +562,19 @@ static void ProcessCtrlC(void)                                  // print system 
   CONS_UART_Write('\r'); CONS_UART_Write('\n');
   Parameters.Write(CONS_UART_Write);                         // write the parameters to the console
 
-  Format_String(CONS_UART_Write, "Batt:");
-  Format_UnsDec(CONS_UART_Write, (10*BatteryVoltage+128)>>8, 5, 4);
-  Format_String(CONS_UART_Write, "V ");
-  Format_SignDec(CONS_UART_Write, (600*BatteryVoltageRate+128)>>8, 3, 1);
-  Format_String(CONS_UART_Write, "mV/min\n");
+  Serial.printf("Batt:%6.4fV %+4.1fmV/min\n", 0.0001f*((10*BatteryVoltage+128)>>8), 0.1f*((600*BatteryVoltageRate+128)>>8));
+  // Format_String(CONS_UART_Write, "Batt:");
+  // Format_UnsDec(CONS_UART_Write, (10*BatteryVoltage+128)>>8, 5, 4);
+  // Format_String(CONS_UART_Write, "V ");
+  // Format_SignDec(CONS_UART_Write, (600*BatteryVoltageRate+128)>>8, 3, 1);
+  // Format_String(CONS_UART_Write, "mV/min\n");
+
+  // lfs_t *lfs = InternalFS._getFS();
+  // Serial.printf("InternalFS TotalBlocks:%lu x %lu B\n", lfs->cfg->block_count, lfs->cfg->block_size);
+
+  // uint32_t TotalBytes = lfs->cfg->block_count * lfs->cfg->block_size;
+  // uint32_t UsedBytes = lfs_fs_size(lfs) * lfs->cfg->block_size;
+  // Serial.printf("InternalFS Total:%3.1f Used:%3.1f [MB]\n", (1.0f/0x1000000)*TotalBytes, (1.0f/0x1000000)*UsedBytes);
 
   xSemaphoreGive(CONS_Mutex); }
 

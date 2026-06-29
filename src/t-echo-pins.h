@@ -43,7 +43,7 @@
 #define EPD_PinDC     _PINNUM(0, 28)
 #define EPD_PinRST    _PINNUM(0,  2)
 #define EPD_PinBusy   _PINNUM(0,  3)
-#define EPD_PinLight  _PINNUM(1, 11)
+#define EPD_PinBL     _PINNUM(1, 11)
 
 // Power enables
 #define IO_Power_Pin  _PINNUM(0, 12) // EPD/RGB/CN1, and GNSS/sensor on rev2
