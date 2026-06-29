@@ -1211,10 +1211,11 @@ void Radio_Task(void *Parms)
   TimeSync &TimeRef = GPS_TimeSync;
 
   int Len=sprintf(Line, "RF chip %s%s detected", Radio_ChipType, HardwareStatus.Radio?"":" NOT");
+#ifdef CONS_OUTPUT
   if(xSemaphoreTake(CONS_Mutex, 20))
   { Serial.println(Line);
     xSemaphoreGive(CONS_Mutex); }
-
+#endif
   for( ; ; )
   { if(!HardwareStatus.Radio) { delay(1000); continue; }
     if(PowerMode==0) { Radio.standby(); Radio.sleep(); Radio_Cache_Clear(); delay(5000); continue; }
@@ -1546,9 +1547,11 @@ void Radio_Task(void *Parms)
              // OGN_TxFIFO.isCorrupt()?'!':'_', ADSL_TxFIFO.isCorrupt()?'!':'_',
              // FSK_RxFIFO.isCorrupt()?'!':'_', PAW_TxFIFO.isCorrupt()?'!':'_');
     PktCountSum=0; Radio_msLiveTime=0; Radio_msDeadTime=0;
+#ifdef CONS_OUTPUT
     if((Parameters.Verbose&0b01) && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 30))
     { if(CONS_UART_Free()>LineLen) Serial.println(Line);
       xSemaphoreGive(CONS_Mutex); }
+#endif
     Line[LineLen++]='\n'; Line[LineLen]=0;
     SysLog_Line(Line, LineLen, 0, 25, 1);
   }

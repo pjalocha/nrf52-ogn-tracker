@@ -357,9 +357,12 @@ void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout, b
 { (void)Timestamp;
   if(!CONS_UART_isConnected()) return;
   if (LogOnly || Line==0 || LineLen <= 0) return;
+#ifdef CONS_OUTPUT
   if(!xSemaphoreTake(CONS_Mutex, msTimeout)) return;
   if(CONS_UART_Free()>LineLen) Serial.write((const uint8_t *)Line, LineLen);
-  xSemaphoreGive(CONS_Mutex); }
+  xSemaphoreGive(CONS_Mutex);
+#endif
+}
 
 void SysLog_Line(const char *Line, bool Timestamp, int msTimeout, bool LogOnly)
 { if (Line==0) return;

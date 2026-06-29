@@ -416,18 +416,21 @@ uint16_t StratuxPort;
 */
 
 #ifdef WITH_NRF52
-  int WriteToNVS(const char *Name="Parameters")
-  { Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_WRITE); if (!ParmFile) return -1;
+  int WriteToNVS(const char *Name="/tracker.prm")
+  { InternalFS.remove(Name);
+    Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_WRITE);
+    if (!ParmFile) return -1;
     int Size = sizeof(FlashParameters);
     int Written = ParmFile.write((const uint8_t *)this, Size);
     ParmFile.close();
     if(Written!=Size) return -2;
     return Written; }
 
-  int ReadFromNVS(const char *Name="Parameters")
-  { Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_READ); if (!ParmFile) return -1;
+  int ReadFromNVS(const char *Name="/tracker.prm")
+  { Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_READ);
+    if (!ParmFile) return -1;
     int Size = sizeof(FlashParameters);
-    int Read = ParmFile.write((uint8_t *)this, Size);
+    int Read = ParmFile.read((uint8_t *)this, Size);
     ParmFile.close();
     if(Read!=Size) return -2;
     return Read; }

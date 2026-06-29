@@ -123,6 +123,7 @@ void FlightProcess(void)
   { if(RndID_TimeToChange==1)
     { Parameters.Address = (Rnd%0xFFFFFE)+1;
       Parameters.WritePOGNS(Line);
+#ifdef CONS_OUTPUT
       if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { Format_String(CONS_UART_Write, Line);
         // Format_String(CONS_UART_Write, "$POGNS,Address=0x");
@@ -132,6 +133,7 @@ void FlightProcess(void)
         // CONS_UART_Write('0'+Parameters.AddrType);
         // Format_String(CONS_UART_Write, "\n");
         xSemaphoreGive(CONS_Mutex); }
+#endif
     }
     RndID_TimeToChange--; }
   if(PrevInFlight==1 && GPS.InFlight==0) RndID_TimeToChange+=20;  // after landing, make new random ID after 20sec
@@ -617,13 +619,14 @@ static void GPS_BurstEnd(void)                                             // wh
   GPS_SatCnt=GPS_SatMon.CalcStats(GPS_SatSNR);
   // Serial.printf("GPS_SatMon.CalcStats(=>%d) => %d\n", GPS_SatSNR, GPS_SatCnt);
   // GPS_TimeSync.Norm();
+#ifdef CONS_OUTPUT
   if(GPS_TimeSync.UTC%10==7)
   { GPS_SatMon.PrintStats(Line);
     if((Parameters.Verbose&0b01) && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 10))
     { Serial.printf("%s\n", Line);
       xSemaphoreGive(CONS_Mutex); }
   }
-
+#endif
   // Serial.printf("GPS: %02X %s\n", GPS_Status.Flags, Line);
 #ifdef DEBUG_PRINT
   if(xSemaphoreTake(CONS_Mutex, 25))
@@ -716,6 +719,7 @@ static void GPS_NMEA(bool Correct=1)                                        // w
   // we would need to patch the GGA here for the GPS which does not calc. nor correct for GeoidSepar
 #endif
   {
+#ifdef CONS_OUTPUT
 #ifdef WITH_GPS_NMEA_PASS                 // pass all GPS NMEA
 #else                                     // or filter them
     if(Parameters.Verbose & 0b01 && !NMEA.isGxGSV() /* && !NMEA.isGxGSA() */ && !NMEA.isGxTXT())
@@ -726,6 +730,7 @@ static void GPS_NMEA(bool Correct=1)                                        // w
           CONS_UART_Write('\r'); CONS_UART_Write('\n'); }
         xSemaphoreGive(CONS_Mutex); }
     }
+#endif // CONS_OUTPUT
 /*
     if(NMEA.Len+2<=sizeof(Line))
     { for(int Idx=0; Idx<NMEA.Len; Idx++) Line[Idx]=NMEA.Data[Idx];
@@ -759,7 +764,7 @@ static void GPS_UBX(void)                                                       
 #endif
   // GPS_Pos[GPS_PosIdx].ReadUBX(UBX);
 #ifdef WITH_GPS_UBX_PASS
-  { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))                                 // send ther UBX packet to the console
+  { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))                 // send the UBX packet to the console
     { UBX.Send(CONS_UART_Write);
     // DumpUBX();
     // Format_String(CONS_UART_Write, "UBX");
@@ -778,6 +783,7 @@ static void GPS_UBX(void)                                                       
     { int Len=strlen((const char *)UBX.Byte+Idx); if(Len>=30) break;
       strcpy(GPS_FirmExt[ExtIdx], (const char *)UBX.Byte+Idx);
       ExtLen+=Len; ExtIdx++; if(ExtIdx>=8) break; }
+#ifdef CONS_OUTPUT
     if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 20))
     { Format_String(CONS_UART_Write, "MON-VER [");
       Format_UnsDec(CONS_UART_Write, UBX.Bytes);
@@ -791,6 +797,7 @@ static void GPS_UBX(void)                                                       
         Format_String(CONS_UART_Write, GPS_FirmExt[ExtIdx]); }
       CONS_UART_Write('\n');
       xSemaphoreGive(CONS_Mutex); }
+#endif
   }
 #ifdef WITH_GPS_CONFIG
   if(UBX.isCFG_PRT())                                                             // if port configuration
@@ -850,12 +857,14 @@ static void GPS_UBX(void)                                                       
   if(UBX.isCFG_GNSS())                                                          // if CFG-GNSS
   { class UBX_CFG_GNSS *CFG = (class UBX_CFG_GNSS *)UBX.Word;
     uint8_t Blocks = CFG->numConfigBlocks;
+#ifdef CONS_OUTPUT
     if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 20))
     { Serial.printf("CFG-GNSS Chan:%d:%d [%d]\n", CFG->numTrkChHw, CFG->numTrkChUse, Blocks);
       for(uint8_t Idx=0; Idx<Blocks; Idx++)
       { class UBX_CFG_GNSS_Block &Block = CFG->Block[Idx];
         Serial.printf(" %s: %2d:%2d 0x%08X\n", Block.gnssName(), Block.resTrkCh, Block.maxTrkCh, Block.flags); }
       xSemaphoreGive(CONS_Mutex); }
+#endif
     for(uint8_t Idx=0; Idx<Blocks; Idx++)
     { class UBX_CFG_GNSS_Block &Block = CFG->Block[Idx];
       if(Block.gnssId==3) Block.setEnable(1);              // enable Beidou
@@ -1092,11 +1101,12 @@ void vTaskGPS(void* pvParameters)
 
   vTaskDelay(5);                                                         // put some initial delay for lighter startup load
 
+#ifdef CONS_OUTPUT
   if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
   { Format_String(CONS_UART_Write, "TaskGPS:");
     Format_String(CONS_UART_Write, "\n");
     xSemaphoreGive(CONS_Mutex); }
-
+#endif
   GPS_Burst.Flags=0;
   bool PPS=0;
   int LineIdle=0;                                                        // [ms] counts idle time for the GPS data
@@ -1205,11 +1215,13 @@ void vTaskGPS(void* pvParameters)
         GPS_UART_Write('\n');
 #endif
       }
+#ifdef CONS_OUTPUT
       if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 10))
       { Format_String(CONS_UART_Write, "TaskGPS: ");
         Format_UnsDec(CONS_UART_Write, NewBaudRate);
         Format_String(CONS_UART_Write, "bps\n");
         xSemaphoreGive(CONS_Mutex); }
+#endif
       GPS_UART_SetBaudrate(NewBaudRate);
       NoValidData=0;
     }
