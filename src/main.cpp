@@ -179,14 +179,22 @@ static void Button_Single(Button2 Butt)
     OLED_PageActive=millis();
   #endif
 #endif
+#ifdef WITH_EPD
+/// control the zoom factor ?
+#endif
 }
 
-static void Button_Double(Button2 Butt) { }
+static void Button_Double(Button2 Butt)
+{
+#ifdef WITH_EPD
+/// control EPD backlight ?
+#endif
+}
 
 static void Button_Long(Button2 Butt)
 { PowerMode=0;
-  ///
-  delay(2000);
+  /// specific stuff to do before shutdown
+  delay(4000);
   NRF_POWER->SYSTEMOFF = 1;
   __DSB();
   __WFI();   // never returns
@@ -194,7 +202,7 @@ static void Button_Long(Button2 Butt)
 
 static void Button_Init(void)
 { pinMode(Button_Pin, INPUT);
-  Button.setLongClickTime(000);
+  Button.setLongClickTime(3000);
   Button.setClickHandler(Button_Single);
   Button.setDoubleClickHandler(Button_Double);
   Button.setLongClickDetectedHandler(Button_Long); }

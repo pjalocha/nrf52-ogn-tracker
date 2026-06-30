@@ -58,6 +58,9 @@ static uint8_t qSec=15;
 static uint8_t DrawSats=0;
 static uint32_t SatHash=0;
 
+static bool isPowerOffDisplay(void)
+{ return PowerMode==0; }
+
 static uint8_t SortSatMon(void)
 { uint8_t Size=0;
   for(uint8_t Idx=0; Idx<GPS_SatMon.Size; Idx++)
@@ -79,7 +82,8 @@ static void DrawSatMon(uint8_t Size)
 }
 
 static bool UpdateSatMon(void)
-{ if(qSec==GPS_SatMon.qSec) return 0;
+{ if(isPowerOffDisplay()) return 0;
+  if(qSec==GPS_SatMon.qSec) return 0;
   qSec=GPS_SatMon.qSec;
   uint8_t Size=SortSatMon();
   uint32_t NewHash=Hash((const uint32_t *)SatList, Size);
@@ -186,7 +190,7 @@ static uint8_t PrevAcftCount = 0xFF;
 static bool PrevAcftCountVisible = false;
 
 static bool AcftCountVisible(void)
-{ return GPS_TimeSinceLock>10; }
+{ return PowerMode>0 && GPS_TimeSinceLock>10; }
 
 static uint8_t getAcftCount(void)
 {
@@ -302,6 +306,16 @@ static void DrawLogoCopyright(void)
   EPD.print(Text);
   EPD.setRotation(EPD_Rotation); }
 
+static void DrawPowerOffMark(void)
+{
+  if(!isPowerOffDisplay()) return;
+  EPD.fillRect(0, 0, 72, 40, GxEPD_WHITE);
+  EPD.setTextColor(GxEPD_BLACK);
+  EPD.setFont(&FreeMonoBold18pt7b);
+  EPD.setCursor(0, 31);
+  EPD.print("OFF");
+}
+
 // ========================================================================================================================
 
 static const int16_t TrafficMapX = 0;
@@ -320,7 +334,7 @@ static uint8_t  TrafficMapWarn = 0;
 static bool PrevGPSLock = false;
 
 static bool hasStableGPSLock(void)
-{ return GPS_TimeSinceLock>10; }
+{ return PowerMode>0 && GPS_TimeSinceLock>10; }
 
 static uint16_t TrafficMapHeading(void)
 {
@@ -510,15 +524,17 @@ void EPD_TrafficRange_Next(void)
 static uint32_t UpdateTime = 0;
 static uint32_t RedrawTime = 0;
 static uint8_t PartUpd = 0;
+static uint8_t PrevPowerMode = 0xFF;
 
 void EPD_DrawID(void)
 { char Line[40];
   EPD.setFullWindow();                                           // this will be full page update
   EPD.firstPage();
   EPD.fillScreen(GxEPD_WHITE);                                   // all-white screen
+  PrevPowerMode=PowerMode;
   PrevGPSLock=hasStableGPSLock();
   if(PrevGPSLock) DrawTrafficMap();
-            else { DrawLogo(); DrawLogoCopyright(); }
+            else { DrawLogo(); DrawLogoCopyright(); DrawPowerOffMark(); }
   EPD.setTextColor(GxEPD_BLACK);
   EPD.setFont(&FreeMonoBold12pt7b);                              // use bold font: more readable
   sprintf(Line, "%X:%d:%06X %s", Parameters.AcftType, Parameters.AddrType, Parameters.Address, Parameters.Reg);
@@ -543,6 +559,10 @@ void EPD_DrawID(void)
 
 void EPD_UpdateID(void)
 { uint32_t msTime=millis();
+  if(PrevPowerMode!=PowerMode)
+  { PrevPowerMode=PowerMode;
+    EPD_DrawID();
+    return; }
   uint32_t msAge = msTime-RedrawTime;
   if(PartUpd>25 && msAge>=300000) EPD_DrawID();                                // redraw every 10 minutes
   else
