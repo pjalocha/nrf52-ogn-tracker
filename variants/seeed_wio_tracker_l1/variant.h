@@ -57,6 +57,8 @@ static const uint8_t SCK = PIN_SPI_SCK;
 #define PIN_QSPI_IO2 (22u)
 #define PIN_QSPI_IO3 (23u)
 
+#define EXTERNAL_FLASH_USE_QSPI
+
 #ifdef __cplusplus
 }
 #endif

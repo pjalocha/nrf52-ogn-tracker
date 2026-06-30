@@ -4,6 +4,7 @@
 #include "proc.h"
 #include "ogn-radio.h"
 
+#include "external_flash_fs.h"
 #include "epd.h"
 #include "oled.h"
 
@@ -461,6 +462,10 @@ void setup()
   // Serial.print("FreeRTOS tick [Hz] = ");
   // Serial.println(configTICK_RATE_HZ);
 
+  HardwareStatus.SPIFFS = LogFS_begin();
+  LogFS_printStatus(Serial);
+  LogFS_listRoot(Serial);
+
   // size_t FStotal = InternalFS.totalBytes();
   // size_t FSused  = InternalFS.usedBytes();
   // Serial.printf("InternalFS: Total:%d Used:%d [kB]\n", (int)(FStotal>>10), (int)(FSused>10));
@@ -586,6 +591,7 @@ static void ProcessCtrlC(void)                                  // print system 
   // uint32_t TotalBytes = lfs->cfg->block_count * lfs->cfg->block_size;
   // uint32_t UsedBytes = lfs_fs_size(lfs) * lfs->cfg->block_size;
   // Serial.printf("InternalFS Total:%3.1f Used:%3.1f [MB]\n", (1.0f/0x1000000)*TotalBytes, (1.0f/0x1000000)*UsedBytes);
+  LogFS_printStatus(Serial);
 
   xSemaphoreGive(CONS_Mutex); }
 
@@ -600,6 +606,17 @@ static void ProcessCtrlX(void)
     // ESP.restart();
     NVIC_SystemReset(); }
   LastTime=Time; } 
+
+static void ProcessCtrlL(void)
+{ static uint32_t LastTime=0;
+  uint32_t Time=millis();
+  uint32_t Diff=Time-LastTime;
+  if(Diff<1000)
+  { HardwareStatus.SPIFFS = LogFS_format(Serial);
+    LogFS_listRoot(Serial); }
+  else
+  { Serial.println("ExternalFlash: press Ctrl-L again within 1s to format FAT"); }
+  LastTime=Time; }
 
 static int ProcessInput(void)
 {
@@ -617,6 +634,8 @@ static int ProcessInput(void)
   { uint8_t Byte; int Err=CONS_UART_Read(Byte); if(Err<=0) break; // get byte from console, if none: exit the loop
     Count++;
     if(Byte==CtrlC) ProcessCtrlC();                                // if Ctrl-C: print parameters
+    if(Byte==CtrlF) LogFS_listRoot(Serial);                         // if Ctrl-F: list external flash root
+    if(Byte==CtrlL) ProcessCtrlL();                                 // double Ctrl-L formats external flash FAT
 #ifdef WITH_LOOKOUT
     if(Byte==CtrlT) ListTraffic();                                 // if Ctrl-T: print traffic
 #endif
