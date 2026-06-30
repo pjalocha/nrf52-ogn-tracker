@@ -5,6 +5,9 @@
 #include "ogn-radio.h"
 
 #include "external_flash_fs.h"
+#ifdef WITH_LOG
+#include "log.h"
+#endif
 #include "epd.h"
 #include "oled.h"
 
@@ -474,6 +477,9 @@ void setup()
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
   xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 1, NULL);  // transmit/receive packets
   xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 0, NULL);  // process received packets, prepare packets for transmission
+#ifdef WITH_LOG
+  xTaskCreate(vTaskLOG    ,  "LOG"  ,  3000, NULL, 0, NULL);  // write received and own packets to external flash
+#endif
 #ifdef WITH_EPAPER
   xTaskCreate(EPD_Task    ,  "EPD"  ,  3000, NULL, 0, NULL);  // update e-paper display
 #endif
@@ -546,6 +552,16 @@ static void ReadPFLAC(void)  // read parameters requested by the user in the NME
 }
 #endif
 
+#ifdef WITH_LOG
+static void ListLogFile(void)
+{
+  if(NMEA.Parms!=1) return;
+  uint32_t FileTime = FlashLog_ReadShortFileTime((const char *)NMEA.ParmPtr(0), NMEA.ParmLen(0));
+  if(FileTime==0) return;
+  FlashLog_ListFile(FileTime);
+}
+#endif
+
 static void ReadPFLA(void)  // read and interprete $PFLAx NMEA
 { if(NMEA.isPFLAC()) return ReadPFLAC();
 
@@ -556,6 +572,9 @@ static void ProcessNMEA(void)     // process a valid NMEA that we got to the con
 #ifdef WITH_CONFIG
   if(NMEA.isPOGNS()) ReadParameters();
   if(NMEA.isPFLA()) ReadPFLA();
+#endif
+#ifdef WITH_LOG
+  if(NMEA.isPOGNL()) ListLogFile();
 #endif
 }
 
@@ -608,14 +627,31 @@ static void ProcessCtrlX(void)
   LastTime=Time; } 
 
 static void ProcessCtrlL(void)
+{
+#ifdef WITH_LOG
+  int Files = FlashLog_ListFiles();
+  if(Files<=0) Serial.println("FlashLog: no log files");
+#else
+  Serial.println("FlashLog: not enabled");
+#endif
+}
+
+static void ProcessCtrlO(void)
 { static uint32_t LastTime=0;
   uint32_t Time=millis();
   uint32_t Diff=Time-LastTime;
   if(Diff<1000)
-  { HardwareStatus.SPIFFS = LogFS_format(Serial);
+  {
+#ifdef WITH_LOG
+    if(FlashLog_isOpen())
+    { Serial.println("ExternalFlash: log file is open, format skipped");
+      LastTime=Time;
+      return; }
+#endif
+    HardwareStatus.SPIFFS = LogFS_format(Serial);
     LogFS_listRoot(Serial); }
   else
-  { Serial.println("ExternalFlash: press Ctrl-L again within 1s to format FAT"); }
+  { Serial.println("ExternalFlash: press Ctrl-O again within 1s to format FAT"); }
   LastTime=Time; }
 
 static int ProcessInput(void)
@@ -635,7 +671,8 @@ static int ProcessInput(void)
     Count++;
     if(Byte==CtrlC) ProcessCtrlC();                                // if Ctrl-C: print parameters
     if(Byte==CtrlF) LogFS_listRoot(Serial);                         // if Ctrl-F: list external flash root
-    if(Byte==CtrlL) ProcessCtrlL();                                 // double Ctrl-L formats external flash FAT
+    if(Byte==CtrlL) ProcessCtrlL();                                  // if Ctrl-L: list log files
+    if(Byte==CtrlO) ProcessCtrlO();                                  // double Ctrl-O formats external flash FAT
 #ifdef WITH_LOOKOUT
     if(Byte==CtrlT) ListTraffic();                                 // if Ctrl-T: print traffic
 #endif

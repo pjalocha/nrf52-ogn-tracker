@@ -7,7 +7,9 @@
 #include "hal.h"                      // Hardware Abstraction Layer
 
 #include "proc.h"                     // PROC task: decode/correct received packets
-// #include "log.h"                      // LOG task: packet logging
+#ifdef WITH_LOG
+#include "log.h"                      // LOG task: packet logging
+#endif
 
 #include "ogn.h"                      // OGN packet structures, encoding/decoding/etc.
 #include "flarm.h"                    // CRC, error correction and $PXFLM NMEA
