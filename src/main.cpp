@@ -629,7 +629,7 @@ static void ProcessCtrlX(void)
   if(Diff<1000)
   { // SysLog_Line("Restart from console", 1, 50);
     // ShutDownReq=1;
-    vTaskDelay(2000);
+    vTaskDelay(pdMS_TO_TICKS(2000));
     // ESP.restart();
     NVIC_SystemReset(); }
   LastTime=Time; } 
@@ -693,7 +693,7 @@ static int ProcessInput(void)
   return Count; }
 
 void loop()
-{ vTaskDelay(1);
+{ vTaskDelay(pdMS_TO_TICKS(1));
 #ifdef WITH_BEEPER
   Play_TimerCheck(1);              // handle playing notes on the buzzer
 #endif
