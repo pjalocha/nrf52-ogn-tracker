@@ -18,6 +18,10 @@
 
 #include "fifo.h"
 
+#ifdef WITH_EPAPER
+#include "epd.h"
+#endif
+
 #ifdef WITH_SDLOG
 #include "sdlog.h"
 #endif
@@ -1279,6 +1283,9 @@ void vTaskPROC(void* pvParameters)
       if( (Warn>0) /* && (AverSpeed>=10) */ )                                    // if non-zero warning level and we seem to be moving
       { // int16_t RelBearing = Look.getRelBearing(Tgt);                      // relative bearing to the Target
         // int8_t Bearing = (12*(int32_t)RelBearing+0x8000)>>16;              // [-12..+12]
+#ifdef WITH_EPAPER
+        EPD_BacklightOn(30000);
+#endif
 #ifdef WITH_FLASHER
         if(Warn>0) Flasher_Play(Flasher_PattDouble);
         if(Warn>1) Flasher_Play(Flasher_PattDouble);

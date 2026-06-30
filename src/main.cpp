@@ -179,15 +179,15 @@ static void Button_Single(Button2 Butt)
     OLED_PageActive=millis();
   #endif
 #endif
-#ifdef WITH_EPD
-/// control the zoom factor ?
+#ifdef WITH_EPAPER
+  /// control the zoom factor ?
 #endif
 }
 
 static void Button_Double(Button2 Butt)
 {
-#ifdef WITH_EPD
-/// control EPD backlight ?
+#ifdef WITH_EPAPER
+  EPD_BacklightOn(15000);
 #endif
 }
 

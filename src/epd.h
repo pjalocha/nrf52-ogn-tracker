@@ -18,6 +18,9 @@ void EPD_Init(void);
 void EPD_DrawID(void);
 void EPD_UpdateID(void);
 void EPD_TrafficRange_Next(void);
+void EPD_BacklightOn(uint32_t Timeout=15000);
+void EPD_BacklightOff(void);
+bool EPD_BacklightIsOn(void);
 
 void EPD_Task(void *Parms);
 

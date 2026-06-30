@@ -20,8 +20,59 @@ SPIClass hSPI(HSPI);                                            // separate SPI 
 
 GxEPD2_BW<GxEPD2_154_D67, GxEPD2_154_D67::HEIGHT> EPD(GxEPD2_154_D67(EPD_PinCS, EPD_PinDC, EPD_PinRST, EPD_PinBusy));
 
+static volatile uint32_t EPD_BacklightUntil = 0;
+static bool EPD_BacklightReady = false;
+static bool EPD_BacklightState = false;
+
+static void EPD_BacklightWrite(bool ON)
+{
+#ifdef EPD_PinBL
+  digitalWrite(EPD_PinBL, ON ? HIGH : LOW);
+  EPD_BacklightState = ON;
+#else
+  (void)ON;
+#endif
+}
+
+void EPD_BacklightOn(uint32_t Timeout)
+{
+#ifdef EPD_PinBL
+  uint32_t Now = millis();
+  EPD_BacklightUntil = Timeout ? Now+Timeout : 0xFFFFFFFF;
+  if(EPD_BacklightReady) EPD_BacklightWrite(true);
+#else
+  (void)Timeout;
+#endif
+}
+
+void EPD_BacklightOff(void)
+{
+  EPD_BacklightUntil = 0;
+  if(EPD_BacklightReady) EPD_BacklightWrite(false);
+}
+
+bool EPD_BacklightIsOn(void)
+{ return EPD_BacklightState; }
+
+static void EPD_BacklightCheck(void)
+{
+#ifdef EPD_PinBL
+  if(!EPD_BacklightReady || !EPD_BacklightState) return;
+  uint32_t Until = EPD_BacklightUntil;
+  if(Until==0 || Until==0xFFFFFFFF) return;
+  if((int32_t)(millis()-Until)>=0) EPD_BacklightOff();
+#endif
+}
+
 void EPD_Init(void)                         // start the e-paper display
 {
+#ifdef EPD_PinBL
+  pinMode(EPD_PinBL, OUTPUT);
+  EPD_BacklightReady = true;
+  EPD_BacklightWrite(false);
+  uint32_t Until = EPD_BacklightUntil;
+  if(Until==0xFFFFFFFF || (Until && (int32_t)(millis()-Until)<0)) EPD_BacklightWrite(true);
+#endif
 #ifdef WITH_NRF52
   hSPI.begin();
 #else
@@ -585,7 +636,9 @@ void EPD_Task(void *Parms)
 
   for( ; ; )
   { vTaskDelay(100);
+    EPD_BacklightCheck();
     EPD_UpdateID();                  // this can take seconds (occasionally)
+    EPD_BacklightCheck();
   }
 }
 
