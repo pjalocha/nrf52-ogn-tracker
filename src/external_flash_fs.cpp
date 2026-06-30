@@ -153,6 +153,30 @@ bool LogFS_isMounted(void)
   return LogFSMounted;
 }
 
+int LogFS_readFile(const char *Name, void *Data, size_t Size)
+{
+  if(!LogFSMounted) return -1;
+  FatFile File;
+  if(!File.open(&LogFS, Name, O_RDONLY)) return -2;
+  if(File.fileSize() != Size)
+  { File.close(); return -3; }
+  int Read = File.read(Data, Size);
+  File.close();
+  return Read == (int)Size ? Read : -4;
+}
+
+int LogFS_writeFile(const char *Name, const void *Data, size_t Size)
+{
+  if(!LogFSMounted) return -1;
+  LogFS.remove(Name);
+  FatFile File;
+  if(!File.open(&LogFS, Name, O_WRONLY | O_CREAT | O_TRUNC)) return -2;
+  int Written = File.write((const uint8_t *)Data, Size);
+  File.sync();
+  File.close();
+  return Written == (int)Size ? Written : -3;
+}
+
 bool LogFS_format(Print &Out)
 {
   if(!ExternalFlashBegun)

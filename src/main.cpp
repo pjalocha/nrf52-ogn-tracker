@@ -420,6 +420,7 @@ void setup()
 
   Button_Init();
   InternalFS.begin();
+  HardwareStatus.SPIFFS = LogFS_begin();
   Parameters.setDefault(getUniqueAddress()); // set default parameter values
   if(Parameters.ReadFromNVS()<0)             // try to get parameters from NVS
   { Parameters.WriteToNVS(); }
@@ -473,7 +474,6 @@ void setup()
   // Serial.print("FreeRTOS tick [Hz] = ");
   // Serial.println(configTICK_RATE_HZ);
 
-  HardwareStatus.SPIFFS = LogFS_begin();
   LogFS_printStatus(Serial);
   LogFS_listRoot(Serial);
 

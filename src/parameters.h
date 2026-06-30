@@ -29,6 +29,10 @@
 #include "nmea.h"
 #include "format.h"
 
+#ifdef WITH_WIO_TRACKER
+#include "external_flash_fs.h"
+#endif
+
 // Parameters stored in Flash
 class __attribute__((packed, aligned(4))) FlashParameters
 { public:
@@ -417,23 +421,35 @@ uint16_t StratuxPort;
 
 #ifdef WITH_NRF52
   int WriteToNVS(const char *Name="/tracker.prm")
-  { InternalFS.remove(Name);
+  {
+#ifdef WITH_WIO_TRACKER
+    return LogFS_writeFile(Name, this, sizeof(FlashParameters));
+#else
+    InternalFS.remove(Name);
     Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_WRITE);
     if (!ParmFile) return -1;
     int Size = sizeof(FlashParameters);
     int Written = ParmFile.write((const uint8_t *)this, Size);
     ParmFile.close();
     if(Written!=Size) return -2;
-    return Written; }
+    return Written;
+#endif
+  }
 
   int ReadFromNVS(const char *Name="/tracker.prm")
-  { Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_READ);
+  {
+#ifdef WITH_WIO_TRACKER
+    return LogFS_readFile(Name, this, sizeof(FlashParameters));
+#else
+    Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_READ);
     if (!ParmFile) return -1;
     int Size = sizeof(FlashParameters);
     int Read = ParmFile.read((uint8_t *)this, Size);
     ParmFile.close();
     if(Read!=Size) return -2;
-    return Read; }
+    return Read;
+#endif
+  }
 #endif
 
 #ifdef WITH_ESP32
