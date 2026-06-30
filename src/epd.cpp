@@ -381,6 +381,8 @@ static uint8_t TrafficMapRangeIdx = 4;
 
 static uint32_t TrafficMapHash = 0;
 static uint32_t TrafficMapTime = 0;
+static const uint32_t TrafficMapMinPeriod = 3000;
+static const uint32_t TrafficMapMaxPeriod = 10000;
 static uint8_t  TrafficMapWarn = 0;
 static bool PrevGPSLock = false;
 
@@ -542,15 +544,16 @@ static bool UpdateTrafficMap(void)
     return 1; }
   if(!GPSLock) return 0;
 
-  uint32_t NewHash = CalcTrafficMapHash();
-  if(NewHash==TrafficMapHash) return 0;
   uint32_t msTime = millis();
-  uint32_t MinPeriod = 3000;
+  uint32_t NewHash = CalcTrafficMapHash();
+  bool ForceRefresh = (msTime-TrafficMapTime)>=TrafficMapMaxPeriod;
+  if(NewHash==TrafficMapHash && !ForceRefresh) return 0;
+  uint32_t MinPeriod = TrafficMapMinPeriod;
 #ifdef WITH_LOOKOUT
   if(Look.WarnLevel!=TrafficMapWarn) MinPeriod=0;
   else if(Look.WarnLevel) MinPeriod=500;
 #endif
-  if(msTime-TrafficMapTime<MinPeriod) return 0;
+  if(!ForceRefresh && msTime-TrafficMapTime<MinPeriod) return 0;
   TrafficMapHash=NewHash;
   TrafficMapTime=msTime;
 #ifdef WITH_LOOKOUT
