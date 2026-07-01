@@ -84,7 +84,11 @@ uint16_t BatterySense(int Samples)
 { uint32_t Volt=0;
   for( int Idx=0; Idx<Samples; Idx++)
   { Volt += analogRead(Battery_Pin); }
+#ifdef WITH_WIO_TRACKER
+  Volt = (Volt*579+Samples*50)/(Samples*100); // [mV] calibrated 5.79mV/count for Wio Tracker
+#else
   Volt = (Volt*11+Samples)/(Samples*2);
+#endif
   return Volt; }                           // [mV]
 
 // =======================================================================================================
@@ -167,6 +171,9 @@ static int OLED_DrawPage(const GPS_Position *GPS)
 // =======================================================================================================
 
 static Button2 Button(Button_Pin);
+#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
+static Button2 BuzzerSwitch(Trackball_PinPress);
+#endif
 
 static void Button_Single(Button2 Butt)
 {
@@ -200,12 +207,37 @@ static void Button_Long(Button2 Butt)
   __WFI();   // never returns
 }
 
+#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
+static void BuzzerSwitch_Long(Button2 Butt)
+{ bool Enable = !Play_isEnabled();
+  if(!Enable)
+  { // Descending confirmation before muting.
+    Beep(2637); delay(100);
+    Beep(2489); delay(150);
+    Beep(0);
+  }
+  Play_SetEnabled(Enable);
+  if(Enable)
+  { // Ascending confirmation after enabling.
+    Play(Play_Vol_1 | Play_Oct_2 | 3, 100);
+    Play(Play_Vol_0 | Play_Oct_2 | 3, 50);
+    Play(Play_Vol_1 | Play_Oct_2 | 4, 150);
+  }
+}
+#endif
+
 static void Button_Init(void)
 { pinMode(Button_Pin, INPUT);
   Button.setLongClickTime(3000);
   Button.setClickHandler(Button_Single);
   Button.setDoubleClickHandler(Button_Double);
-  Button.setLongClickDetectedHandler(Button_Long); }
+  Button.setLongClickDetectedHandler(Button_Long);
+#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
+  pinMode(Trackball_PinPress, INPUT_PULLUP);
+  BuzzerSwitch.setLongClickTime(2000);
+  BuzzerSwitch.setLongClickDetectedHandler(BuzzerSwitch_Long);
+#endif
+}
 
 
 
@@ -420,6 +452,7 @@ void setup()
 
   Button_Init();
   InternalFS.begin();
+  HardwareStatus.SPIFFS = LogFS_begin();
   Parameters.setDefault(getUniqueAddress()); // set default parameter values
   if(Parameters.ReadFromNVS()<0)             // try to get parameters from NVS
   { Parameters.WriteToNVS(); }
@@ -451,8 +484,14 @@ void setup()
 #ifdef WITH_BEEPER_GEN
   Play_Morse('S');
 #else
+#ifdef WITH_WIO_TRACKER
+  // The Wio Tracker L1 buzzer is markedly louder around 2.5-2.65kHz.
+  Play(Play_Vol_1 | Play_Oct_2 | 0x03, 250); // 2489Hz
+  Play(Play_Vol_1 | Play_Oct_2 | 0x04, 250); // 2637Hz
+#else
   Play(Play_Vol_1 | Play_Oct_0 | 0x05, 250);
   Play(Play_Vol_1 | Play_Oct_0 | 0x08, 250);
+#endif
   Play(Play_Vol_0 | Play_Oct_0 | 0x00, 100);
 #endif
   // Play_Morse(' ');
@@ -473,7 +512,6 @@ void setup()
   // Serial.print("FreeRTOS tick [Hz] = ");
   // Serial.println(configTICK_RATE_HZ);
 
-  HardwareStatus.SPIFFS = LogFS_begin();
   LogFS_printStatus(Serial);
   LogFS_listRoot(Serial);
 
@@ -629,7 +667,7 @@ static void ProcessCtrlX(void)
   if(Diff<1000)
   { // SysLog_Line("Restart from console", 1, 50);
     // ShutDownReq=1;
-    vTaskDelay(2000);
+    vTaskDelay(pdMS_TO_TICKS(2000));
     // ESP.restart();
     NVIC_SystemReset(); }
   LastTime=Time; } 
@@ -693,11 +731,14 @@ static int ProcessInput(void)
   return Count; }
 
 void loop()
-{ vTaskDelay(1);
+{ vTaskDelay(pdMS_TO_TICKS(1));
 #ifdef WITH_BEEPER
   Play_TimerCheck(1);              // handle playing notes on the buzzer
 #endif
   Button.loop();
+#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
+  BuzzerSwitch.loop();
+#endif
   while(ProcessInput()>0);         // handle console input
   static GPS_Position *PrevGPS=0;
   GPS_Position *GPS = GPS_getPosition();
@@ -713,7 +754,9 @@ void loop()
     OLED_PageChange=1;
 #ifdef WITH_OLED_DIM
     uint32_t msTime = millis();
-    if(BatteryVoltageRate>0x10) OLED_PageActive = msTime;
+    bool USBpowered = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk)!=0;
+    bool GPSlocked = GPS && GPS->isValid();
+    if(USBpowered || !GPSlocked) OLED_PageActive = msTime;
     uint32_t Age = msTime-OLED_PageActive;
     OLED_PageOFF = Age>OLED_PageTimeout;
 #else

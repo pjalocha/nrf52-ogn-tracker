@@ -22,5 +22,8 @@ void Play_Morse(char Char, uint8_t Note = Play_Vol_1|Play_Oct_1, uint8_t DotLen=
 
 uint8_t Play_isBusy(void);
 
+bool Play_isEnabled(void);
+void Play_SetEnabled(bool Enabled);
+
 void Play_TimerCheck(uint8_t Ticks=1);
 

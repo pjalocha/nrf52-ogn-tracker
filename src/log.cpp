@@ -81,7 +81,7 @@ int FlashLog_FindOldestFile(uint32_t &Oldest, uint32_t After)
   if(!FlashLog_OpenRoot(Root)) return -1;
   FatFile File;
   while(File.openNext(&Root, O_RDONLY))
-  { vTaskDelay(1);
+  { vTaskDelay(pdMS_TO_TICKS(1));
     if(!File.isDir())
     { char Name[32];
       File.getName(Name, sizeof(Name));
@@ -102,7 +102,7 @@ int FlashLog_ListFiles(void)
   int Files = 0;
   uint32_t PrevTime = 0;
   for( ; ; )
-  { vTaskDelay(1);
+  { vTaskDelay(pdMS_TO_TICKS(1));
     uint32_t Time = 0;
     FlashLog_FindOldestFile(Time, PrevTime);
     if(Time==0xFFFFFFFF) break;
@@ -159,7 +159,7 @@ int FlashLog_ListFile(const char *FileName, uint32_t FileTime)
     if(xSemaphoreTake(CONS_Mutex, 25))
     { Format_String(CONS_UART_Write, Line, 0, Len);
       xSemaphoreGive(CONS_Mutex); }
-    vTaskDelay(10);
+    vTaskDelay(pdMS_TO_TICKS(10));
     Packets++;
   }
 
@@ -187,7 +187,7 @@ static int FlashLog_CleanEmpty(int MinSize=0)
 
   FatFile File;
   while(File.openNext(&Root, O_RDONLY))
-  { vTaskDelay(1);
+  { vTaskDelay(pdMS_TO_TICKS(1));
     if(!File.isDir())
     { char Name[32];
       File.getName(Name, sizeof(Name));
@@ -212,7 +212,7 @@ static int FlashLog_CleanEmpty(int MinSize=0)
   for(int Idx=0; Idx<DelFiles; Idx++)
   { FlashLog_FullFileName(FullName, DelFile[Idx]);
     LogFS.remove(FullName);
-    vTaskDelay(1); }
+    vTaskDelay(pdMS_TO_TICKS(1)); }
   return DelFiles; }
 
 static uint32_t FlashLog_FreeBytes(void)
@@ -243,7 +243,7 @@ static int FlashLog_Clean(size_t MinFree, int Loops)
 { int Count = 0;
   for( ; Loops>0; Loops--)
   { if(FlashLog_Clean(MinFree)<=0) break;
-    vTaskDelay(1);
+    vTaskDelay(pdMS_TO_TICKS(1));
     Count++; }
   return Count; }
 
@@ -326,7 +326,7 @@ extern "C" void vTaskLOG(void* pvParameters)
   TickType_t PrevTick = 0;
   static bool PrevFlying = 0;
   for( ; ; )
-  { vTaskDelay(1);
+  { vTaskDelay(pdMS_TO_TICKS(1));
     bool Flying = GPS_TimeSinceLock>=10 && PowerMode>0;
     bool Landed = PrevFlying && !Flying;
     PrevFlying = Flying;
@@ -335,7 +335,7 @@ extern "C" void vTaskLOG(void* pvParameters)
     if(Flying && LogFS_isMounted())
     { if(FlashLog_SaveReq) FlashLog_Reopen();
       TickType_t Tick = xTaskGetTickCount();
-      if(Packets==0) { PrevTick=Tick; vTaskDelay(50); continue; }
+      if(Packets==0) { PrevTick=Tick; vTaskDelay(pdMS_TO_TICKS(50)); continue; }
       if(Packets>=8) { Copy(); PrevTick=Tick; continue; }
       TickType_t Diff = Tick-PrevTick;
       if(Diff>=8000) { Copy(); PrevTick=Tick; continue; }
@@ -344,14 +344,14 @@ extern "C" void vTaskLOG(void* pvParameters)
     { if(Landed && LogFS_isMounted())
       { while(FlashLog_FIFO.Full()>0)
         { if(Copy()<=0) break;
-          vTaskDelay(1); }
+          vTaskDelay(pdMS_TO_TICKS(1)); }
       }
       if(FlashLog_File.isOpen()) FlashLog_File.close();
       while(FlashLog_FIFO.Full()>=FlashLog_FIFO.Len/2)
       { FlashLog_FIFO.Read();
-        vTaskDelay(1); }
+        vTaskDelay(pdMS_TO_TICKS(1)); }
     }
-    vTaskDelay(50);
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 

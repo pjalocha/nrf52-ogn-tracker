@@ -172,7 +172,7 @@ static void GPS_PPS_On(void)                          // called on rising edge o
     xSemaphoreGive(CONS_Mutex); }
 #endif
   PrevTickCount = PPS_Tick;                           // [ms]
-  if(abs((int)Delta-configTICK_RATE_HZ)>=20) return;  // [ms] filter out difference away from 1.00sec
+  if(abs((int)Delta-1000)>=20) return;                // [ms] filter out difference away from 1.00sec
   TimeSync_HardPPS(PPS_Tick);                         // [ms] synchronize the UTC time to the PPS at given Tick
 #ifdef DEBUG_PRINT
   if(xSemaphoreTake(CONS_Mutex, 25))
@@ -233,7 +233,7 @@ static void GPS_BurstStart(int CharDelay=0)  // when GPS starts sending the data
 { GPS_Burst.Active=1;
   Burst_Tick=xTaskGetTickCount();
   GPS_TimeSync.Norm(Burst_Tick);
-  if(CharDelay) Burst_Tick -= (CharDelay*configTICK_RATE_HZ*10)/GPS_BaudRate;           // correct for the data already received on the GPS port
+  if(CharDelay) Burst_Tick -= (CharDelay*10000UL)/GPS_BaudRate;          // [ms] correct for the data already received on the GPS port
   // Serial.printf("GPS_BurstStart(%d) Burst_Tick:%u\n", CharDelay, Burst_Tick);
 #ifdef DEBUG_PRINT
   if(xSemaphoreTake(CONS_Mutex, 25))
@@ -508,7 +508,7 @@ static void GPS_BurstComplete(void)                                   // when GP
         // GPS_FatTime=GPS_Pos[GPS_PosIdx].getFatTime();
 #ifndef WITH_MAVLINK                                                       // with MAVlink we sync. with the SYSTEM_TIME message
         int32_t msDiff = GPS_Pos[GPS_PosIdx].mSec;                         // [ms] fractional second time by the GPS
-        if(msDiff>=configTICK_RATE_HZ/2) { msDiff-=configTICK_RATE_HZ; UnixTime++; }                      // [ms]
+        if(msDiff>=500) { msDiff-=1000; UnixTime++; }                                      // [ms]
         // Serial.printf("TimeSync_SoftPPS(%u, %u, %d+%d)\n", Burst_Tick, UnixTime, msDiff, Parameters.PPSdelay);
         TimeSync_SoftPPS(Burst_Tick, UnixTime, msDiff+Parameters.PPSdelay);
         // Serial.printf("GPS_TimeSync: %ums <=> %us\n", GPS_TimeSync.sysTime, GPS_TimeSync.UTC);
@@ -1099,7 +1099,7 @@ void vTaskGPS(void* pvParameters)
   // PPS_TickCount=0;
   Burst_Tick=0;
 
-  vTaskDelay(5);                                                         // put some initial delay for lighter startup load
+  vTaskDelay(pdMS_TO_TICKS(5));                                          // put some initial delay for lighter startup load
 
 #ifdef CONS_OUTPUT
   if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
@@ -1179,7 +1179,7 @@ void vTaskGPS(void* pvParameters)
       xSemaphoreGive(CONS_Mutex); }
 #endif
 */
-    if(LineIdle>2) vTaskDelay(1);
+    if(LineIdle>2) vTaskDelay(pdMS_TO_TICKS(1));
     if(LineIdle==0)                                                        // if any bytes were received ?
     { if(!GPS_Burst.Active) GPS_BurstStart();                              // if not already started then declare burst started
       if( (!GPS_Burst.Complete) && (GPS_Burst.GxGGA && GPS_Burst.GxRMC && GPS_Burst.GxGSA) ) // if GGA+RMC+GSA received
@@ -1209,7 +1209,7 @@ void vTaskGPS(void* pvParameters)
 #ifdef WITH_GPS_MTK
 #ifdef WITH_GPS_ENABLE
         GPS_DISABLE();
-        vTaskDelay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
         GPS_ENABLE();
 #endif
         GPS_UART_Write('\n');

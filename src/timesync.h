@@ -7,21 +7,22 @@
 
 class TimeSync
 { public:
+   static constexpr uint32_t ClockHz = 1000; // millis() time base, independent of the 1024 Hz RTOS tick
    uint32_t     UTC;       // [sec] UTC Unix time
    uint32_t sysTime;       // [ms]  system time which corresponds to the above UTC
 
   public:
    uint16_t getFracTime(uint32_t msTime) const
-   { msTime = msTime+configTICK_RATE_HZ-sysTime;
-     if(msTime<configTICK_RATE_HZ) return msTime;
-     if(msTime<configTICK_RATE_HZ*2) return msTime-configTICK_RATE_HZ;
-     if(msTime<configTICK_RATE_HZ*3) return msTime-configTICK_RATE_HZ*2;
-     return msTime%configTICK_RATE_HZ; }
+   { msTime = msTime+ClockHz-sysTime;
+     if(msTime<ClockHz) return msTime;
+     if(msTime<ClockHz*2) return msTime-ClockHz;
+     if(msTime<ClockHz*3) return msTime-ClockHz*2;
+     return msTime%ClockHz; }
 
    void Norm(uint32_t msTime)
    { int32_t msDiff = msTime-sysTime;
-     if(msDiff>=configTICK_RATE_HZ*2) { sysTime+=configTICK_RATE_HZ*2; UTC+=2; return; }
-     if(msDiff>=configTICK_RATE_HZ  ) { sysTime+=configTICK_RATE_HZ  ; UTC++; }
+     if(msDiff>=ClockHz*2) { sysTime+=ClockHz*2; UTC+=2; return; }
+     if(msDiff>=ClockHz  ) { sysTime+=ClockHz  ; UTC++; }
    }
 
    // uint32_t getUTC(uint32_t msTime) const

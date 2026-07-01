@@ -1018,7 +1018,7 @@ void vTaskPROC(void* pvParameters)
   // OGN_TxPacket<OGN_Packet> InfoPacket;                                 // information packet
 
   for( ; ; )
-  { vTaskDelay(1);
+  { vTaskDelay(pdMS_TO_TICKS(1));
 
     for( ; ; )
     { FSK_RxPacket *RxPkt = FSK_RxFIFO.getRead();                        // check for new received packets
@@ -1292,31 +1292,43 @@ void vTaskPROC(void* pvParameters)
         if(Warn>2) Flasher_Play(Flasher_PattDouble);
 #endif
 #ifdef WITH_BEEPER                                                         // make the sound according to the level
+#ifdef WITH_WIO_TRACKER
+        // Measured resonant region of the fitted Wio buzzer: 2.45-2.65kHz.
+        const uint8_t NearTone = Play_Oct_2 | 3; // 2489Hz
+        const uint8_t Warn1Tone = NearTone;
+        const uint8_t Warn2Tone = NearTone;
+        const uint8_t Warn3Tone = Play_Oct_2 | 4; // 2637Hz
+#else
+        const uint8_t NearTone = Play_Oct_1 | 0;
+        const uint8_t Warn1Tone = Play_Oct_1 | 4;
+        const uint8_t Warn2Tone = Play_Oct_1 | 8;
+        const uint8_t Warn3Tone = Play_Oct_1 | 11;
+#endif
         static uint8_t NearBackOff=0;
         if(Warn==0)
         { if(AlarmThresh<=1)
           { uint8_t NearAcft=Look.countNearAcft();
             if(NearAcft)
             { if(NearBackOff) NearBackOff--;
-              else { Play(Play_Vol_1 | Play_Oct_1 | 0, 50); NearBackOff=10; }
+              else { Play(Play_Vol_1 | NearTone, 50); NearBackOff=10; }
             }
             else NearBackOff=10;
           }
         }
         else if(Warn<=1)
         { if(AlarmThresh<=1)
-          { Play(Play_Vol_1 | Play_Oct_1 | 4, 200); }
+          { Play(Play_Vol_1 | Warn1Tone, 200); }
         }
         else if(Warn<=2)
         { if(AlarmThresh<=2)
-          { Play(Play_Vol_3 | Play_Oct_1 | 8, 150); Play(Play_Oct_1 | 8, 150);
-            Play(Play_Vol_3 | Play_Oct_1 | 8, 150); }
+          { Play(Play_Vol_3 | Warn2Tone, 150); Play(Warn2Tone, 150);
+            Play(Play_Vol_3 | Warn2Tone, 150); }
         }
         else if(Warn<=3)
         { if(AlarmThresh<=3)
-          { Play(Play_Vol_3 | Play_Oct_1 |11, 100); Play(Play_Oct_1 |11, 100);
-            Play(Play_Vol_3 | Play_Oct_1 |11, 100); Play(Play_Oct_1 |11, 100);
-            Play(Play_Vol_3 | Play_Oct_1 |11, 100); }
+          { Play(Play_Vol_3 | Warn3Tone, 100); Play(Warn3Tone, 100);
+            Play(Play_Vol_3 | Warn3Tone, 100); Play(Warn3Tone, 100);
+            Play(Play_Vol_3 | Warn3Tone, 100); }
         }
 
 #endif // WITH_BEEPER

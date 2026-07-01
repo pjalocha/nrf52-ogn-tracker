@@ -101,6 +101,15 @@ static bool Radio_IRQ(void) { return digitalRead(Radio_PinIRQ1); }
 
 // =======================================================================================================
 
+static int Radio_StartRx(void)
+{
+#ifdef Radio_PinRXEN
+  digitalWrite(Radio_PinRXEN, HIGH);
+#endif
+  return Radio.startReceive(); }
+
+// =======================================================================================================
+
 #ifdef WITH_SX1262
 #define WITH_RADIO_CACHE
 #endif
@@ -467,7 +476,11 @@ static int ManchEncode(uint8_t *Out, const uint8_t *Inp, uint8_t InpLen) // Enco
 
 #ifdef WITH_SX1262
 static int Radio_TxFSK(const uint8_t *Packet, uint8_t Len)
-{ uint32_t msDead=millis();
+{
+#ifdef Radio_PinRXEN
+  digitalWrite(Radio_PinRXEN, LOW);
+#endif
+  uint32_t msDead=millis();
   uint32_t usTxTime=Radio.getTimeOnAir(Len);                             // [usec]
   Radio_TxCredit-=usTxTime/1000;
   int State=Radio.transmit((const uint8_t *)Packet, Len);                                 // transmit
@@ -489,7 +502,7 @@ static int Radio_TxFSK(const uint8_t *Packet, uint8_t Len)
     usLeft = usTxTime-usTime;                                          // [usec] time left till the end of packet
     if(Radio_IRQ()) break;                                 // raised IRQ => end-of-data
     // uint16_t Flags=Radio.getIRQFlags(); if(Flags & RADIOLIB_SX127X_CLEAR_IRQ_FLAG_TX_DONE) break;
-    if(usLeft>1500) { vTaskDelay(1); continue; }
+    if(usLeft>1500) { vTaskDelay(pdMS_TO_TICKS(1)); continue; }
     if(usLeft<(-40)) break;
     taskYIELD(); }
   // State=Radio.finishTransmit();                         // adds a long delay and leaves a significant tail
@@ -760,7 +773,7 @@ static int Radio_Receive(uint32_t msTimeLen, uint8_t PktLen, uint8_t SysID, uint
   uint32_t msStart = millis();                                     // [ms] start of the slot
   int PktCount=0;
   for( ; ; )
-  { vTaskDelay(1);                                                 // wait 1ms
+  { vTaskDelay(pdMS_TO_TICKS(1));                                 // wait 1ms
     PktCount+=Radio_Receive(PktLen, SysID, Channel, TimeRef);      // check if a packet has been received
     uint32_t Now = millis();
     uint32_t msTime = Now-msStart;                                 // [ms] time since start
@@ -816,7 +829,7 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
   Radio.standby();
   Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);       // configure for reception
   Radio_setFrequency(RxFreq);                                       // set frequency
-  Radio.startReceive();                                             // start receiving
+  Radio_StartRx();                                                  // start receiving
   XorShift64(Random.Word);                                          // randomize
   if(TxPacket)                                                      // if there is packet to be sent out
   { int TxTime = Random.RX%msTimeLen;
@@ -847,7 +860,7 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
     Radio.standby();
     Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);        // configure for reception
     Radio_setFrequency(RxFreq);                                        //
-    Radio.startReceive();
+    Radio_StartRx();
     // if(Parameters.Verbose>=2)
     { uint32_t msTime = millis()-GPS_TimeSync.sysTime;
       uint8_t PktLen=24; if(TxPktLen) PktLen=TxPktLen;
@@ -912,7 +925,11 @@ static void Radio_ConfigLoRa(float BW, uint8_t SF, uint8_t PreambleLen, uint8_t 
 static void Radio_ConfigMESHT(uint8_t CRa=1) { Radio_ConfigLoRa(250.0f, 7, 16, 0x2B, CRa); } // 8 preamble symbols, SYNC=0x2B
 
 static void Radio_TxMESHT(MESHT_Packet &Packet)           // transmit a MESHT packet
-{ uint32_t msDead=millis();
+{
+#ifdef Radio_PinRXEN
+  digitalWrite(Radio_PinRXEN, LOW);
+#endif
+  uint32_t msDead=millis();
   Radio.transmit(Packet.Byte, Packet.Len);                // not clear, if we should wait here for the transmission to complete ?
   uint32_t usTxTime=Radio.getTimeOnAir(Packet.Len);       // [usec]
   Radio_TxCredit-=usTxTime/1000;
@@ -953,7 +970,7 @@ static int Radio_RxFANET(uint32_t msTimeLen, TimeSync &TimeRef)    // FANET rece
 { uint32_t msStart = millis();                                     // [ms] start of the slot
   int PktCount=0;
   for( ; ; )
-  { vTaskDelay(1);                                                 // wait 1ms
+  { vTaskDelay(pdMS_TO_TICKS(1));                                 // wait 1ms
     PktCount+=Radio_FANETrxPacket(TimeRef);                        // check if a packet has been received
     uint32_t Now = millis();
     uint32_t msTime = Now-msStart;                            // [ms] time since start
@@ -968,6 +985,9 @@ static int Radio_RxFANET(uint32_t msTimeLen, TimeSync &TimeRef)    // FANET rece
 
 static void Radio_TxFANET(FANET_Packet &Packet)                    // transmit a FANET packet
 { // Serial.printf("FNT Tx[%d] %06X\n", Packet.Len, Packet.getAddr());
+#ifdef Radio_PinRXEN
+  digitalWrite(Radio_PinRXEN, LOW);
+#endif
   uint32_t msDead = millis();
   Radio.transmit(Packet.Byte, Packet.Len); Packet.Done=1;          // not clear, if we should wait here for the transmission to complete ?
   uint32_t usTxTime=Radio.getTimeOnAir(Packet.Len);                // [usec]
@@ -1017,7 +1037,7 @@ static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeL
   Radio.standby();
   Radio_ConfigFANET(BW);                               // setup for FANET, includes switching from FSK to LoRa
   Radio_setFrequency(Freq);                          // set frequency
-  Radio.startReceive();                              // start receiving
+  Radio_StartRx();                                   // start receiving
   XorShift64(Random.Word);                           // randomize
   int PktCount=0;
   if(TxPacket)
@@ -1052,14 +1072,17 @@ LoRaWANnode WANdev;
 
 static void Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
 { // Serial.printf("WAN Tx[%d]\n", PktLen);
+#ifdef Radio_PinRXEN
+  digitalWrite(Radio_PinRXEN, LOW);
+#endif
   Radio.transmit(Packet, PktLen); }
 
 static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLen, float *RSSI=0, float *SNR=0, float *FreqOfs=0)
 { uint32_t msStart=millis();
   // Serial.printf("RxLoRaWAN(%dms)\n", msTimeLen);
-  Radio.startReceive();                             // start receiving
+  Radio_StartRx();                                  // start receiving
   for( ; ; )
-  { vTaskDelay(1);
+  { vTaskDelay(pdMS_TO_TICKS(1));
     uint32_t Now = millis();
     uint32_t msTime = Now-msStart;             // [ms] time since start
     if(msTime>=msTimeLen) break;                    // [ms] when reached the requesten time length then stop
@@ -1195,6 +1218,10 @@ void Radio_Task(void *Parms)
   Radio_ChipTemperature = Radio.getTempRaw()+Parameters.RFchipTempCorr;
 #endif
 #ifdef WITH_SX1262
+#ifdef Radio_PinRXEN
+  pinMode(Radio_PinRXEN, OUTPUT);
+  digitalWrite(Radio_PinRXEN, HIGH);
+#endif
   int State = Radio.beginFSK(868.2,          100.0,           50.0,        234.3,            0,              8,           1.6,         0);
   if(State==0) Radio_Cache_Clear();
   //                     Freq[MHz], Bit-rate[kbps], Freq.dev.[kHz], RxBand.[kHz], TxPower[dBm], preamble[bits], TXCO volt.[V], use LDO[bool]
@@ -1259,13 +1286,13 @@ void Radio_Task(void *Parms)
     { float BW=250.0f; if(Radio_FreqPlan.Plan>1) BW=500.0f;      // for plans 2,3 and 4 bandwidth 500kHz
       Radio_ConfigFANET(BW);
       Radio_setFrequency(1e-6*FreqFNT);
-      Radio.startReceive();                                      // start receiving FANET
+      Radio_StartRx();                                           // start receiving FANET
       for( ; ; )
       { PktCount+=Radio_FANETrxPacket(TimeRef);                  // any packet received ?
         if(FNT_TxFIFO.Full()) break;                             // when FANET packet to transmit, then stop this loop
         msTime = TimeRef.getFracTime(millis());
         if(msTime>=Slot1_Start) break;
-        vTaskDelay(1); }
+        vTaskDelay(pdMS_TO_TICKS(1)); }
       FANET_Packet *FNTpacket = FNT_TxFIFO.getRead();            // get the FANET packet to transmit
       if(FNTpacket) { FNT_TxFIFO.Read(); if(!Parameters.TxFNT) FNTpacket=0; }
       XorShift64(Random.Word);
@@ -1274,7 +1301,7 @@ void Radio_Task(void *Parms)
       if(msSlot>40) PktCount+=Radio_FANETslot(BW, FreqFNT, Parameters.TxPower, msSlot, FNTpacket, TimeRef);
     }
     else
-    { if(msTimeLeft>0) vTaskDelay(msTimeLeft); }
+    { if(msTimeLeft>0) vTaskDelay(pdMS_TO_TICKS(msTimeLeft)); }
     // if(msTime<350)
     // { uint32_t msSlot = 380-msTime;
     //   uint32_t Freq = Radio_FreqPlan.getFreqFNT(TimeRef.UTC);
@@ -1294,10 +1321,10 @@ void Radio_Task(void *Parms)
       Radio.standby();
       Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);
       Radio_setFrequency(RxFreq);
-      Radio.startReceive();
+      Radio_StartRx();
       uint32_t msLive = millis();
       for( ; ; )
-      { vTaskDelay(1);
+      { vTaskDelay(pdMS_TO_TICKS(1));
         PktCount+=Radio_Receive(RxPktLen, RxSysID, RxChannel, TimeRef);
         if(ADSL_TxFIFO.Full()) break;                                  // break when an ADS-L packet appears
         uint32_t Now = millis();
@@ -1316,7 +1343,7 @@ void Radio_Task(void *Parms)
       }
     }
     else
-    { if(msTimeLeft>0) vTaskDelay(msTimeLeft); }
+    { if(msTimeLeft>0) vTaskDelay(pdMS_TO_TICKS(msTimeLeft)); }
 #endif // WITH_FANET_SLOT
 
     /// debug print

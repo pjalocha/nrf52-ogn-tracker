@@ -55,15 +55,26 @@ void Beep_Note(uint8_t Note) // Note = VVOONNNN: VV = Volume, OO=Octave, NNNN=No
 
 static volatile uint8_t Play_Note=0;             // Note being played
 static volatile uint8_t Play_Counter=0;          // [ms] time counter
+static volatile bool Play_Enabled=true;
 
 static FIFO<uint16_t,  64> Play_FIFO;            // queue of notes to play
 // static FIFO<uint16_t, 128> Morse_FIFO;           // queue for Morse messages
 
 void Play(uint8_t Note, uint8_t Len)             // [Note] [ms] put a new note to play in the queue
 { // Serial.printf("Play(0x%02X, %d)\n", Note, Len);
+  if(!Play_Enabled) return;
   uint16_t Word = Note; Word<<=8; Word|=Len; Play_FIFO.Write(Word); }
 
 uint8_t Play_isBusy(void) { return Play_Counter; } // is a note being played right now ?
+
+bool Play_isEnabled(void) { return Play_Enabled; }
+
+void Play_SetEnabled(bool Enabled)
+{ Play_Enabled=Enabled;
+  Play_FIFO.Clear();
+  Play_Counter=0;
+  Play_Note=0;
+  Beep(0); }
 
 void Play_Morse(char Char, uint8_t Note, uint8_t DotLen)
 { if(Char<' ') return;                                      //
@@ -85,7 +96,8 @@ void Play_Morse(char Char, uint8_t Note, uint8_t DotLen)
 // }
 
 void Play_TimerCheck(uint8_t Ticks)              // every ms serve the note playing
-{ uint8_t Counter=Play_Counter;
+{ if(!Play_Enabled) return;
+  uint8_t Counter=Play_Counter;
   if(Counter)                                    // if counter non-zero
   { if(Counter>Ticks) Counter-=Ticks;            // decrement it
                  else Counter=0;
