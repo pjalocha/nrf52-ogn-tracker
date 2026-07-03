@@ -108,6 +108,8 @@ static int Radio_RXEN(bool ON=1) { digitalWrite(Radio_PinRXEN, ON);}
 static int Radio_RXEN(bool ON=1) { }
 #endif
 
+static int Radio_Standby(void) { return Radio.standby(); }
+
 // =======================================================================================================
 
 #ifdef WITH_SX1262
@@ -433,7 +435,11 @@ static int Radio_ConfigManchFSK(uint8_t PktLen, bool RxMode, const uint8_t *SYNC
     if(State) ErrState=State; }
 #endif
 #ifdef WITH_SX1262
+#ifdef WITH_WIO_OPTIMIZED_RX
+  State=Radio_setPreambleLength(16);                                // [bits] HDR uses a 16-bit preamble; keep its detector enabled in RX
+#else
   State=Radio_setPreambleLength(RxMode?0:16);                       // [bits] minimal preamble
+#endif
 #endif
 #ifdef WITH_SX1276
   State=Radio_setPreambleLength(RxMode?8:16);                       // [bits] minimal preamble
@@ -504,7 +510,7 @@ static int Radio_TxFSK(const uint8_t *Packet, uint8_t Len)
     taskYIELD(); }
   // State=Radio.finishTransmit();                         // adds a long delay and leaves a significant tail
   // Radio.clearIRQFlags();
-  Radio.standby();
+  Radio_Standby();
   Radio.clearIrqFlags(RADIOLIB_SX127X_FLAGS_ALL);
   // uint8_t RegPktLen = Radio.mod->SPIreadRegister(RADIOLIB_SX127X_REG_PAYLOAD_LENGTH_FSK);
   // uint8_t RegFixed = Radio.mod->SPIreadRegister(RADIOLIB_SX127X_REG_PACKET_CONFIG_1);
@@ -823,7 +829,7 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
 #endif
   int PktCount=0;
   uint32_t msStart = millis();                                      // [ms] note then slot starts
-  Radio.standby();
+  Radio_Standby();
   Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);       // configure for reception
   Radio_setFrequency(RxFreq);                                       // set frequency
   Radio_RXEN(1);
@@ -849,13 +855,13 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
       PktCount+=Radio_Receive(TxTime, RxPktLen, RxSysID, RxChannel, TimeRef); // and keep listen a bit more
       TxThres+=3; }
 // #endif
-    Radio.standby();
+    Radio_Standby();
     Radio_ConfigSysID(TxSysID, TxPktLen, 0, TxSYNC, TxSyncLen);        // configure for transmission
     Radio_setOutputPower(TxPower);                                     // set Tx power
     Radio_setFrequency(TxFreq);                                        // set frequency
     Radio_TxSysID(TxSysID, TxPacket, TxPktLen);                        // transmit packet
     Radio_TxCount[TxSysID]++;
-    Radio.standby();
+    Radio_Standby();
     Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);        // configure for reception
     Radio_setFrequency(RxFreq);                                        //
     Radio_RXEN(1);
@@ -876,7 +882,7 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
   uint32_t msTime = Now-msStart;                                  // keep receiving till the end of slot
   if(msTimeLen>msTime)
     PktCount+=Radio_Receive(msTimeLen-msTime, RxPktLen, RxSysID, RxChannel, TimeRef);
-  Radio.standby();
+  Radio_Standby();
   return PktCount; }
 
 // =======================================================================================================
@@ -1028,7 +1034,7 @@ static void Radio_ConfigFANET(uint8_t CRa=4)                       // setup Radi
 static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeLen, FANET_Packet *TxPacket, TimeSync &TimeRef)
 { // Serial.printf("FANETslot: %6.3fMHz %dms %c\n", 1e-6*Freq, msTimeLen, TxPacket?'T':'r');
   uint32_t msStart = millis();                       // [ms]
-  Radio.standby();
+  Radio_Standby();
   Radio_ConfigFANET(BW);                               // setup for FANET, includes switching from FSK to LoRa
   Radio_setFrequency(Freq);                          // set frequency
   Radio_RXEN(1);
@@ -1039,7 +1045,7 @@ static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeL
   { uint32_t TxTime = 5;
     if(msTimeLen>35) TxTime+=Random.RX%(msTimeLen-35);   // random transmission time
     PktCount+=Radio_RxFANET(TxTime, TimeRef);            // keep receiving till transmission time
-    Radio.standby();
+    Radio_Standby();
     Radio_setOutputPower(TxPower);
     // uint32_t msTxTime=millis();
     Radio_TxFANET(*TxPacket);                            // transmit the packet
@@ -1052,7 +1058,7 @@ static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeL
   { uint32_t Now = millis();
     uint32_t msTime = Now-msStart;
     if(msTime<msTimeLen) PktCount+=Radio_RxFANET(msTimeLen-msTime, TimeRef); }
-  Radio.standby();
+  Radio_Standby();
   return PktCount; }                                     // return number of received packets
 
 #endif // WITH_FANET
@@ -1239,7 +1245,7 @@ void Radio_Task(void *Parms)
 #endif
   for( ; ; )
   { if(!HardwareStatus.Radio) { delay(1000); continue; }
-    if(PowerMode==0) { Radio.standby(); Radio.sleep(); Radio_Cache_Clear(); delay(5000); continue; }
+    if(PowerMode==0) { Radio_Standby(); Radio.sleep(); Radio_Cache_Clear(); delay(5000); continue; }
 
     int PktCount=0;
 
@@ -1304,6 +1310,11 @@ void Radio_Task(void *Parms)
     //   else vTaskDelay(msSlot); }
     // else
 #else
+#ifdef WITH_WIO_OPTIMIZED_RX
+    // Wio soft-PPS places nearby OGN/ADS-L around 400ms and HDR around 830ms.
+    // Leave the first part of the second free for the standard FSK slot.
+    if(msTime<330) vTaskDelay(pdMS_TO_TICKS(330-msTime));
+#else
     uint32_t FreqHDR = Radio_FreqPlan.getFreqOBAND();
     if(FreqHDR)
     { uint8_t RxSysID = Radio_SysID_HDR;
@@ -1313,7 +1324,7 @@ void Radio_Task(void *Parms)
       int RxSyncLen = Radio_SysSYNC(RxSYNC, RxPktLen, RxSysID);
       float RxFreq = 1e-6*Radio_FreqPlan.getChanFrequency(RxChannel);
       uint32_t msStart = millis();                                      // [ms] note then slot starts
-      Radio.standby();
+      Radio_Standby();
       Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);
       Radio_setFrequency(RxFreq);
       Radio_RXEN(1);
@@ -1340,6 +1351,7 @@ void Radio_Task(void *Parms)
     }
     else
     { if(msTimeLeft>0) vTaskDelay(pdMS_TO_TICKS(msTimeLeft)); }
+#endif
 #endif // WITH_FANET_SLOT
 
     /// debug print
@@ -1366,7 +1378,7 @@ void Radio_Task(void *Parms)
     PAW_Packet *PawPacket = PAW_TxFIFO.getRead();
     uint32_t FreqPAW = Radio_FreqPlan.getFreqOBAND();
     if(PawPacket && FreqPAW)                         // if there is a packet to be transmitted and the frequency plan allows it
-    { Radio.standby();
+    { Radio_Standby();
       int Ret=Radio_ConfigLDR();
       Radio_setFrequency(1e-6*FreqPAW);
       Radio_setOutputPower(Parameters.TxPower+13);       // we can transmit PAW with higher power
@@ -1398,6 +1410,7 @@ void Radio_Task(void *Parms)
     int8_t  TxPwr = Parameters.TxPower;                                   //
     uint8_t TxProt = Radio_SysID_OGN;                                     // Tx protocol
     uint8_t RxProt = Radio_SysID_OGN_ADSL;                                // Rx protocol
+    uint8_t RxChan = 0;
     const uint8_t *TxPkt = 0;
     bool    Odd=0;
     uint8_t TxChan=0;
@@ -1411,6 +1424,12 @@ void Radio_Task(void *Parms)
       else if(TxChan==OGN_Chan) { TxPkt=OGN_Pkt;  TxProt=Radio_SysID_OGN;  RxProt=Radio_SysID_OGN_ADSL; }           // 1
       else /* if(TxChan==2) */  { TxPwr+=13; TxPkt=ADSL_Pkt; TxProt=Radio_SysID_LDR;  RxProt=Radio_SysID_LDR; }           // 2
       // else                { TxPwr+=13; TxPkt=ADSL_Pkt; TxProt=Radio_SysID_HDR;  RxProt=Radio_SysID_HDR; TxChan=2; } // 3
+#ifdef WITH_WIO_OPTIMIZED_RX
+      if(TimeRef.UTC&1) { RxChan=2; RxProt=Radio_SysID_LDR; }
+      else { RxChan=OGN_Chan; RxProt=Radio_SysID_OGN_ADSL; }
+#else
+      RxChan=TxChan;
+#endif
     }
     else if(NZ)                                                            // New Zealand
     { TxChan = Radio_FreqPlan.HopChan1(TimeRef.UTC);
@@ -1426,11 +1445,27 @@ void Radio_Task(void *Parms)
     }
 
     msTime = TimeRef.getFracTime(millis());
-    uint32_t SlotLen = Slot2_Start-msTime;            // [ms] make the first slot longer, closer to ADS-L primary slot
+    uint32_t Slot1End = Slot2_Start;
+#ifdef WITH_WIO_OPTIMIZED_RX
+    Slot1End=720;
+#endif
+    uint32_t SlotLen = Slot1End-msTime;                // [ms] make the first slot longer, closer to ADS-L primary slot
          if(SlotLen>800) SlotLen=800;
     else if(SlotLen<200) SlotLen=200;
     // Serial.printf("Slot #0: %3d:%3d\n", msTime, SlotLen);
-    PktCount+=Radio_Slot(TxChan, TxPwr, SlotLen, TxPkt, TxProt, TxChan, RxProt, TimeRef);
+    if(!EU) RxChan=TxChan;
+    PktCount+=Radio_Slot(TxChan, TxPwr, SlotLen, TxPkt, TxProt, RxChan, RxProt, TimeRef);
+
+#ifdef WITH_WIO_OPTIMIZED_RX
+    if((TimeRef.UTC&1)==0)
+    { msTime=TimeRef.getFracTime(millis());
+      if(msTime<720) vTaskDelay(pdMS_TO_TICKS(720-msTime));
+      msTime=TimeRef.getFracTime(millis());
+      if(msTime<960)
+      { PktCount+=Radio_Slot(2, Parameters.TxPower+13, 960-msTime,
+                            ADSL_Pkt, Radio_SysID_HDR, 2, Radio_SysID_HDR, TimeRef); }
+    }
+#endif
 
     msTime = millis()-TimeRef.sysTime;                // [ms] time since PPS
     SlotLen = Slot2_End-msTime;
@@ -1454,6 +1489,7 @@ void Radio_Task(void *Parms)
     TxProt = Radio_SysID_OGN;
     RxProt = Radio_SysID_OGN_ADSL;
     TxPkt = 0;
+    RxChan = 0;
     FLR_Chan  = Radio_FreqPlan.getChannel(TimeRef.UTC, 1, 0);
     OGN_Chan  = Radio_FreqPlan.getChannel(TimeRef.UTC, 1, 1);
     if(EU || NZ)
@@ -1461,6 +1497,13 @@ void Radio_Task(void *Parms)
            if(TxChan==OGN_Chan) { TxPkt=OGN_Pkt;  TxProt=Radio_SysID_OGN;  RxProt=Radio_SysID_OGN_ADSL; }
       else if(TxChan==FLR_Chan) { TxPkt=ADSL_Pkt; TxProt=Radio_SysID_ADSL; RxProt=Radio_SysID_FLR_ADSL; }
       else    { if(EU) TxPwr+=13; TxPkt=ADSL_Pkt; TxProt=Radio_SysID_LDR;  RxProt=Radio_SysID_LDR; }
+#ifdef WITH_WIO_OPTIMIZED_RX
+      if(EU)
+      { RxChan=OGN_Chan; RxProt=Radio_SysID_OGN_ADSL; }
+      else RxChan=TxChan;
+#else
+      RxChan=TxChan;
+#endif
     }
     else
     { Odd = !Odd;
@@ -1472,7 +1515,7 @@ void Radio_Task(void *Parms)
          if(SlotLen<100) SlotLen=100;
     else if(SlotLen>400) SlotLen=400;
     // Serial.printf("Slot #1: %3d:%3d\n", msTime, SlotLen);
-    PktCount+=Radio_Slot(TxChan, TxPwr, SlotLen, TxPkt, TxProt, TxChan, RxProt, TimeRef);
+    PktCount+=Radio_Slot(TxChan, TxPwr, SlotLen, TxPkt, TxProt, RxChan, RxProt, TimeRef);
 
 #ifdef WITH_SX1276
     Radio_ChipTemperature = Radio.getTempRaw()+Parameters.RFchipTempCorr;
