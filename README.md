@@ -6,8 +6,6 @@ show local status on an EPD/OLED display, internally log flights, and can expose
 
 ![ThinkNode-M5, T-Beam Supreme, T-Echo and Wio Tracker running OGN-Tracker software](docs/images/trackers-photo.jpg)
 
-![nRF52 OGN Tracker overview](docs/nrf52-ogn-tracker.svg)
-
 ## Supported Hardware
 
 - LilyGo T-Echo
