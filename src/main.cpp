@@ -523,8 +523,8 @@ void setup()
 
   GPS_UART_Init(GPS_getBaudRate());
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
-  xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 1, NULL);  // transmit/receive packets
-  xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 0, NULL);  // process received packets, prepare packets for transmission
+  xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 2, NULL);  // transmit/receive packets
+  xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 1, NULL);  // process received packets, prepare packets for transmission
 #ifdef WITH_LOG
   xTaskCreate(vTaskLOG    ,  "LOG"  ,  3000, NULL, 0, NULL);  // write received and own packets to external flash
 #endif

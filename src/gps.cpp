@@ -95,7 +95,7 @@ static uint32_t GPS_nextBaudRate(void)   // produce next (possible) GPS baudrate
 
 uint32_t GPS_getBaudRate (void) { return GPS_BaudRate; }
 
-const uint32_t GPS_TargetBaudRate = 115200; // [bps]
+const uint32_t GPS_TargetBaudRate = 230499; // 115200; // [bps]
 
 #ifdef WITH_MAVLINK
 uint16_t MAVLINK_BattVolt = 0;   // [mV]
@@ -483,9 +483,13 @@ static void GPS_BurstComplete(void)                                   // when GP
            else { GPS->Pressure*=2; GPS->StdAltitude=StdAlt2; }
   }
 #endif
-  // GPS_Pos[GPS_PosIdx].PrintLine(Line);                                   // print out the GPS position in a single-line format
-  // Serial.printf("GPS_BurstComplete: [%2d] Flags:%02X Err:%d\n%s",
-  //          GPS_PosIdx, GPS_Status.Flags, GPS_Pos[GPS_PosIdx].NMEAerrors, Line);
+#ifdef DEBUG_PRINT
+  if(xSemaphoreTake(CONS_Mutex, 25))
+  { GPS_Pos[GPS_PosIdx].PrintLine(Line);                                   // print out the GPS position in a single-line format
+    Serial.printf("GPS_BurstCompl: [%2d] Flags:%02X Err:%d\n%s",
+             GPS_PosIdx, GPS_Status.Flags, GPS_Pos[GPS_PosIdx].NMEAerrors, Line);
+    xSemaphoreGive(CONS_Mutex); }
+#endif
 #ifdef DEBUG_PRINT
   GPS_Pos[GPS_PosIdx].PrintLine(Line);                                   // print out the GPS position in a single-line format
   if(xSemaphoreTake(CONS_Mutex, 25))
@@ -593,9 +597,10 @@ static void GPS_BurstComplete(void)                                   // when GP
   }
   GPS_Pos[NextPosIdx].Clear();                                              // clear the next position
   GPS_Pos[NextPosIdx].copyTime(GPS_Pos[GPS_PosIdx]);                        // copy time from current position
+  GPS_Pos[NextPosIdx].copyDOP(GPS_Pos[GPS_PosIdx]);
   GPS_Pos[NextPosIdx].incrTimeFrac(GPS_PosPeriod);                          // increment time by the expected period
   GPS_Pos[NextPosIdx].copyBaro(GPS_Pos[GPS_PosIdx], (int16_t)GPS_PosPeriod);
-  if(GPS_Pos[GPS_PosIdx].Sec!=GPS_Pos[NextPosIdx].Sec) FlightProcess();
+  if(GPS_Pos[GPS_PosIdx].Sec!=GPS_Pos[NextPosIdx].Sec) FlightProcess();     // full second position => airborne-detections logic
   // Flight.Process(GPS_Pos[GPS_PosIdx]);
   // GPS_Pos[NextPosIdx].copyDate(GPS_Pos[GPS_PosIdx]);
 #ifdef DEBUG_PRINT
@@ -643,7 +648,7 @@ static void GPS_BurstEnd(void)                                             // wh
 // ----------------------------------------------------------------------------
 
 GPS_Position *GPS_getPosition(uint8_t &BestIdx, int16_t &BestRes, int8_t Sec, int16_t Frac, bool Ready) // return GPS position closest to the given Sec.Frac
-{ int32_t TargetTime = Frac+(int32_t)Sec*1000;                            // target time including the seconds
+{ int32_t TargetTime = Frac+(int32_t)Sec*1000;                           // target time including the seconds
   BestIdx=0; BestRes=0x7FFF;
   for(uint8_t Idx=0; Idx<GPS_PosPipeSize; Idx++)                         // run through the GPS positions stored in the pipe
   { GPS_Position *Pos=GPS_Pos+Idx;

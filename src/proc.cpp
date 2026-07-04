@@ -1049,16 +1049,18 @@ void vTaskPROC(void* pvParameters)
     TickType_t msTime;                                                  // [msec]
     TimeSync_Time(Time, msTime);
     uint32_t SlotTime=Time;
+    if(msTime<200) SlotTime--;                                          // lasts up to 0.200sec after the PPS
+/*
 #ifdef WITH_GPS_UBX
-    if(msTime<200) SlotTime--;                                          // lasts up to 0.300sec after the PPS
+    if(msTime<250) SlotTime--;                                          // lasts up to 0.300sec after the PPS
 #endif
 #ifdef WITH_GPS_PCAS
-    if(msTime<200) SlotTime--;                                          // lasts up to 0.300sec after the PPS
+    if(msTime<250) SlotTime--;                                          // lasts up to 0.300sec after the PPS
 #endif
 #ifdef WITH_GPS_MTK
-    if(msTime<300) SlotTime--;                                          // lasts up to 0.300sec after the PPS
+    if(msTime<250) SlotTime--;                                          // lasts up to 0.300sec after the PPS
 #endif
-
+*/
     if(SlotTime==PrevSlotTime) continue;                                // stil same time slot, go back to RX processing
     // Serial.printf("PROC: %u(%u)\n", SlotTime, PrevSlotTime);
 
@@ -1068,29 +1070,17 @@ void vTaskPROC(void* pvParameters)
 #ifdef WITH_MAVLINK
     GPS_Position *Position = GPS_getPosition(BestIdx, BestResid, (SlotTime-1)%60, 0);
 #else
-    GPS_Position *Position = GPS_getPosition(BestIdx, BestResid, SlotTime%60, 0); // get GPS position which isReady
+    GPS_Position *Position = 0;
+    for(uint8_t Try=0; Try<5; Try++)
+    { Position = GPS_getPosition(BestIdx, BestResid, SlotTime%60, 0); // get GPS position which isReady
+      if(Position && BestResid==0) break;
+      vTaskDelay(20); }
 #endif
-    // GPS_Position *Position = GPS_getPosition();
 #ifdef DEBUG_PRINT
     if(xSemaphoreTake(CONS_Mutex, 25))
-    { // Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60, 2);
-      // Format_UnsDec(CONS_UART_Write, Time%60, 2);
-      Format_UnsDec(CONS_UART_Write, Time, 10);
-      CONS_UART_Write('.');
-      // Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
-      Format_UnsDec(CONS_UART_Write, msTime, 3);
-      Format_String(CONS_UART_Write, " -> getPos(");
-      Format_UnsDec(CONS_UART_Write, SlotTime%60, 2);
-      Format_String(CONS_UART_Write, ") => ");
-      if(Position)
-      { Format_UnsDec(CONS_UART_Write, (uint16_t)BestIdx);
-        CONS_UART_Write(':');
-        Format_SignDec(CONS_UART_Write, BestResid, 4, 3);
-        Format_String(CONS_UART_Write, "s"); }
-      Format_String(CONS_UART_Write, "\n");
+    { Serial.printf("%10u:%4d GPS_getPosition([%u], %+d, %u, 0)\n", Time, msTime, BestIdx, BestResid, SlotTime%60);
       xSemaphoreGive(CONS_Mutex); }
 #endif
-
 #ifdef WITH_GDL90
     GDL_HEARTBEAT.Clear();
     GDL_HEARTBEAT.Initialized=1;
@@ -1148,15 +1138,6 @@ void vTaskPROC(void* pvParameters)
           if(Parameters.AddrType==0) Parameters.Address = Parameters.Address^Random.RX; // random-ID if enabled
           GhostSilent=NewGhostSilent; }
       }
-
-#ifdef DEBUG_PRINT
-      if(xSemaphoreTake(CONS_Mutex, 25))
-      { Format_UnsDec(CONS_UART_Write, TimeSync_Time()%60);
-        CONS_UART_Write('.');
-        Format_UnsDec(CONS_UART_Write, TimeSync_msTime(), 3);
-        Format_String(CONS_UART_Write, " -> Sent\n");
-        xSemaphoreGive(CONS_Mutex); }
-#endif // DEBUG_PRINT
       PosTime=Position->getUnixTime();
       PosPacket.Packet.HeaderWord=0;
       PosPacket.Packet.Header.Address    = Parameters.Address;         // set address
@@ -1173,9 +1154,9 @@ void vTaskPROC(void* pvParameters)
       PosPacket.Packet.Position.AcftType = Parameters.AcftType;        // aircraft-type
       PosPacket.Packet.Position.Stealth = Parameters.Stealth;
 #ifdef DEBUG_PRINT
+      if(xSemaphoreTake(CONS_Mutex, 25))
       { uint8_t Len=PosPacket.Packet.WriteAPRS(Line, PosTime);         // print on the console as APRS message
         Line[Len++]='\n'; Line[Len]=0;
-        xSemaphoreTake(CONS_Mutex, 25);
         Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
 #endif // DEBUG_PRINT
