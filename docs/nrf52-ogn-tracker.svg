@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+  <title id="title">nRF52 OGN Tracker overview</title>
+  <desc id="desc">Block diagram showing GNSS, nRF52840 tracker firmware, SX1262 radio, display, flash logging, and BLE NMEA output.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #243447; stroke-width: 2; rx: 8; }
+      .core { fill: #13293d; stroke: #13293d; stroke-width: 2; rx: 8; }
+      .coreText { fill: #ffffff; font: 700 24px sans-serif; }
+      .title { fill: #13293d; font: 700 28px sans-serif; }
+      .label { fill: #13293d; font: 700 18px sans-serif; }
+      .small { fill: #405469; font: 14px sans-serif; }
+      .line { stroke: #2d6cdf; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .line2 { stroke: #1f8a70; stroke-width: 3; fill: none; marker-end: url(#arrowGreen); }
+      .chip { fill: #e7f0ff; stroke: #2d6cdf; stroke-width: 2; rx: 6; }
+      .radio { fill: #e9f8f3; stroke: #1f8a70; stroke-width: 2; rx: 6; }
+      .warn { fill: #fff5df; stroke: #d58b00; stroke-width: 2; rx: 6; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2d6cdf"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f8a70"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="960" height="420"/>
+  <text class="title" x="40" y="48">nRF52 OGN Tracker</text>
+  <text class="small" x="42" y="74">GNSS position, OGN/ADS-L/FANET/MESHT radio, local display, logging, and BLE NMEA output</text>
+
+  <rect class="panel chip" x="42" y="125" width="150" height="74"/>
+  <text class="label" x="70" y="157">GNSS</text>
+  <text class="small" x="66" y="181">NMEA / UBX</text>
+
+  <rect class="core" x="270" y="104" width="250" height="154"/>
+  <text class="coreText" x="316" y="150">nRF52840</text>
+  <text class="small" x="310" y="181" fill="#ffffff">FreeRTOS firmware</text>
+  <text class="small" x="310" y="205" fill="#ffffff">Lookout + packet routing</text>
+  <text class="small" x="310" y="229" fill="#ffffff">Config via serial commands</text>
+
+  <rect class="panel radio" x="605" y="96" width="150" height="68"/>
+  <text class="label" x="648" y="125">SX1262</text>
+  <text class="small" x="633" y="148">868 MHz radio</text>
+
+  <rect class="panel" x="602" y="190" width="155" height="70"/>
+  <text class="label" x="635" y="220">Display</text>
+  <text class="small" x="625" y="244">EPD or OLED</text>
+
+  <rect class="panel warn" x="600" y="286" width="160" height="68"/>
+  <text class="label" x="635" y="314">Flash</text>
+  <text class="small" x="620" y="338">logs + parameters</text>
+
+  <rect class="panel chip" x="805" y="188" width="115" height="74"/>
+  <text class="label" x="837" y="220">BLE</text>
+  <text class="small" x="823" y="244">NMEA port</text>
+
+  <path class="line" d="M 192 162 C 225 162, 236 162, 270 162"/>
+  <path class="line2" d="M 520 135 C 553 135, 570 130, 605 130"/>
+  <path class="line" d="M 520 205 C 554 205, 568 218, 602 224"/>
+  <path class="line" d="M 520 238 C 552 270, 568 314, 600 320"/>
+  <path class="line" d="M 757 225 C 775 225, 787 225, 805 225"/>
+
+  <rect class="panel" x="44" y="286" width="210" height="68"/>
+  <text class="label" x="70" y="314">Supported boards</text>
+  <text class="small" x="70" y="338">LilyGO T-Echo, Wio Tracker L1</text>
+</svg>
