@@ -132,9 +132,9 @@ static void BLE_StartAdvertising()
 static void BLE_Init(void)
 { Bluefruit.autoConnLed(false);
   Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-  if(!Bluefruit.begin(1, 0)) return;
+  if(!Bluefruit.begin(1, 0)) return;             // 1 client allowed, no connections to external servers
   Bluefruit.setName(Parameters.BTname);
-  Bluefruit.setTxPower(4);
+  Bluefruit.setTxPower(0);                       // [dBm] BLE transmitter power
 
   BLE_SPP_Service.begin();
 
@@ -276,11 +276,25 @@ static void Button_Double(Button2 Butt)
 
 static void Button_Long(Button2 Butt)
 { PowerMode=0;
-  /// specific stuff to do before shutdown
-  delay(4000);
-  NRF_POWER->SYSTEMOFF = 1;
-  __DSB();
-  __WFI();   // never returns
+#ifdef WITH_BEEPER
+  Beep_Off();
+#endif
+#ifdef WITH_EPAPER
+  EPD_BacklightOff();
+  EPD_DrawID();
+#endif
+#ifdef GPS_PinEna
+  GPS_DISABLE();
+#endif
+#ifdef RF_Power_Pin
+  digitalWrite(RF_Power_Pin, LOW);
+#endif
+#ifdef IO_Power_Pin
+  digitalWrite(IO_Power_Pin, LOW);
+#endif
+  delay(100);
+  systemOff(Button_Pin, LOW);   // wake on the active-low button
+  while(1) __WFI();             // never returns
 }
 
 #if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)

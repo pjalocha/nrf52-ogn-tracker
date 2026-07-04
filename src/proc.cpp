@@ -580,10 +580,12 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
     //          RxPacket->Packet.Header.AddrType, RxPacket->Packet.Header.Address, LatDist, LonDist);
 #ifdef WITH_POGNT
     { uint8_t Len=RxPacket->WritePOGNT(Line);                                         // print on the console as $POGNT
+#ifdef CONS_OUTPUT
       if(Parameters.Verbose>0)
       if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
+#endif
       SysLog_Line(Line, Len, 0, 25, 1);
     }
 #endif

@@ -396,7 +396,6 @@ static uint8_t TrafficMapRangeIdx = 2;
 static uint32_t TrafficMapHash = 0;
 static uint32_t TrafficMapTime = 0;
 static const uint32_t TrafficMapMinPeriod = 3000;
-static const uint32_t TrafficMapMaxPeriod = 60000;
 static uint8_t  TrafficMapWarn = 0;
 static bool PrevGPSLock = false;
 
@@ -558,27 +557,27 @@ static bool UpdateTrafficMap(void)
 { bool GPSLock = hasStableGPSLock();
   if(GPSLock!=PrevGPSLock)
   { EPD_DrawID();
-    return 0; }
+    return 1; }
   if(!GPSLock) return 0;
 
   uint32_t msTime = millis();
   uint32_t NewHash = CalcTrafficMapHash();
-  bool ForceRefresh = (msTime-TrafficMapTime)>=TrafficMapMaxPeriod;
-  if(NewHash==TrafficMapHash && !ForceRefresh) return 0;
+  if(NewHash==TrafficMapHash) return 0;
   uint32_t MinPeriod = TrafficMapMinPeriod;
 #ifdef WITH_LOOKOUT
   if(Look.WarnLevel!=TrafficMapWarn) MinPeriod=0;
   else if(Look.WarnLevel) MinPeriod=500;
 #endif
-  if(!ForceRefresh && msTime-TrafficMapTime<MinPeriod) return 0;
+  if(msTime-TrafficMapTime<MinPeriod) return 0;
   TrafficMapHash=NewHash;
   TrafficMapTime=msTime;
 #ifdef WITH_LOOKOUT
   TrafficMapWarn=Look.WarnLevel;
 #endif
 
-  EPD_DrawID();                                                   // radar is too large/frequent for reliable partial refresh
-  return 0; }
+  EPD_UpdatePartialWindow(TrafficMapX, TrafficMapY, TrafficMapW, TrafficMapH, []()
+  { DrawTrafficMap(); });
+  return 1; }
 
 void EPD_TrafficRange_Next(void)
 { TrafficMapRangeIdx++;
@@ -591,9 +590,8 @@ void EPD_TrafficRange_Next(void)
 static uint32_t UpdateTime = 0;
 static uint32_t RedrawTime = 0;
 static uint8_t PartUpd = 0;
-static const uint8_t  FullRefreshPartUpd = 12;
-static const uint32_t FullRefreshMinPeriod = 60000;
-static const uint32_t FullRefreshMaxPeriod = 180000;
+static const uint8_t  FullRefreshPartUpd = 25;
+static const uint32_t FullRefreshMinPeriod = 300000;
 static uint8_t PrevPowerMode = 0xFF;
 
 void EPD_DrawID(void)
@@ -635,16 +633,12 @@ void EPD_UpdateID(void)
     EPD_DrawID();
     return; }
   uint32_t msAge = msTime-RedrawTime;
-  if(PartUpd && ((PartUpd>=FullRefreshPartUpd && msAge>=FullRefreshMinPeriod) || msAge>=FullRefreshMaxPeriod))
+  if(PartUpd>=FullRefreshPartUpd && msAge>=FullRefreshMinPeriod)
   { EPD_DrawID();                                                              // full refresh to clear partial-update ghosting
     return; }
   else
   { msAge = msTime-UpdateTime;
     if(msAge<1000) return; }                                     // do not update more frequent than once per 2 seconds
-  if(hasStableGPSLock())
-  { UpdateTrafficMap();                                          // keep radar page away from partial refresh artifacts
-    UpdateTime=msTime;
-    return; }
   PartUpd+=UpdateAlarmThresh();
   PartUpd+=UpdateAcftCount();
   PartUpd+=UpdateBatt();

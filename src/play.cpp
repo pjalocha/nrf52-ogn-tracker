@@ -10,6 +10,11 @@
 
 #ifdef WITH_BEEPER
 
+void Beep_Off(void)
+{ noTone(Buzzer_Pin);
+  pinMode(Buzzer_Pin, OUTPUT);
+  digitalWrite(Buzzer_Pin, LOW); }
+
 #ifdef WITH_BEEPER_GEN   // if buzzer with internal single-tone generator is used
 
 void Beep_Init(void)
@@ -123,4 +128,3 @@ void Play_TimerCheck(uint8_t Ticks)              // every ms serve the note play
 }
 
 #endif
-

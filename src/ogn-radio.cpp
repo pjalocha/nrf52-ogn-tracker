@@ -860,8 +860,7 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
     Radio_setFrequency(RxFreq);                                        //
     Radio_RXEN(1);
     Radio.startReceive();
-/*
-    // if(Parameters.Verbose>=2)
+    if(Parameters.Verbose>=2)
     { uint32_t msTime = millis()-GPS_TimeSync.sysTime;
       uint8_t PktLen=24; if(TxPktLen) PktLen=TxPktLen;
       int Len=sprintf(Line, "<%10u:%4d [%d:%d] #%d %3.1fdBm ",
@@ -872,7 +871,6 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
       // Serial.printf("Radio_Slot() %s", Line);
       SysLog_Line(Line, Len, 0, 20, 1);
     }
-*/
   }                                            // start receiving again
   uint32_t Now = millis();
   uint32_t msTime = Now-msStart;                                  // keep receiving till the end of slot
@@ -1240,6 +1238,7 @@ void Radio_Task(void *Parms)
   { Serial.println(Line);
     xSemaphoreGive(CONS_Mutex); }
 #endif
+
   for( ; ; )
   { if(!HardwareStatus.Radio) { vTaskDelay(1000); continue; }
     if(PowerMode==0) { Radio.standby(); Radio.sleep(); Radio_Cache_Clear(); vTaskDelay(5000); continue; }

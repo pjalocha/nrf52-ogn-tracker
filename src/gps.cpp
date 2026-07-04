@@ -203,7 +203,6 @@ static void GPS_PPS_Off(void)                       // called on falling edge of
 
 static void GPS_LockStart(void)                     // called when GPS catches a lock
 {
-
 #ifdef WITH_BEEPER
   if(KNOB_Tick>12)
   { Play(Play_Vol_1 | Play_Oct_1 | 0x00, 100);
@@ -211,12 +210,10 @@ static void GPS_LockStart(void)                     // called when GPS catches a
     Play(Play_Vol_1 | Play_Oct_1 | 0x02, 100);
     Play(Play_Vol_0 | Play_Oct_1 | 0x02, 100); }
 #endif
-
 }
 
 static void GPS_LockEnd(void)                       // called when GPS looses a lock
 {
-
 #ifdef WITH_BEEPER
   if(KNOB_Tick>12)
   { Play(Play_Vol_1 | Play_Oct_1 | 0x02, 100);
@@ -224,7 +221,6 @@ static void GPS_LockEnd(void)                       // called when GPS looses a 
     Play(Play_Vol_1 | Play_Oct_1 | 0x00, 100);
     Play(Play_Vol_0 | Play_Oct_1 | 0x00, 100); }
 #endif
-
 }
 
 // ----------------------------------------------------------------------------
@@ -1110,7 +1106,7 @@ void vTaskGPS(void* pvParameters)
   // PPS_TickCount=0;
   Burst_Tick=0;
 
-  vTaskDelay(5);                                          // put some initial delay for lighter startup load
+  vTaskDelay(5);                                                         // put some initial delay for lighter startup load
 
 #ifdef CONS_OUTPUT
   if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))

@@ -11,6 +11,7 @@ const uint8_t Play_Oct_2 = 0x20;
 const uint8_t Play_Oct_3 = 0x30;
 
 void Beep_Init(void);
+void Beep_Off(void);
 
 void Beep(uint16_t Freq, uint8_t Duty=127, uint8_t DoubleAmpl=0);
 
@@ -26,4 +27,3 @@ bool Play_isEnabled(void);
 void Play_SetEnabled(bool Enabled);
 
 void Play_TimerCheck(uint8_t Ticks=1);
-
