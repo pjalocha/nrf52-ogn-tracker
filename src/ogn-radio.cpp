@@ -103,9 +103,9 @@ static bool Radio_IRQ(void) { return digitalRead(Radio_PinIRQ1); }
 // this switch in present in Wio-Tracker, not sure about other devices
 
 #ifdef Radio_PinRXEN
-static int Radio_RXEN(bool ON=1) { digitalWrite(Radio_PinRXEN, ON);}
+static void Radio_RXEN(bool ON=1) { digitalWrite(Radio_PinRXEN, ON); }
 #else
-static int Radio_RXEN(bool ON=1) { }
+static void Radio_RXEN(bool ON=1) { }
 #endif
 
 // =======================================================================================================

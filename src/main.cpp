@@ -15,6 +15,12 @@
 
 #include "Button2.h"
 
+#ifdef WITH_BLE_SPP
+#include <bluefruit.h>
+#include "nrf_sdm.h"
+#include "nrf_soc.h"
+#endif
+
 // =======================================================================================================
 
 SemaphoreHandle_t CONS_Mutex;
@@ -69,7 +75,14 @@ static uint8_t I2C_Scan(TwoWire &Wire, const char *Title)
 // =======================================================================================================
 
 int16_t readMCUtemperature(void)
-{ NRF_TEMP->TASKS_START = 1;
+{
+#ifdef WITH_BLE_SPP
+  uint8_t SoftDeviceEnabled = 0;
+  if((sd_softdevice_is_enabled(&SoftDeviceEnabled)==NRF_SUCCESS) && SoftDeviceEnabled)
+  { int32_t Temp = 0;
+    if(sd_temp_get(&Temp)==NRF_SUCCESS) return (Temp*10+2)/4; } // [0.1degC]
+#endif
+  NRF_TEMP->TASKS_START = 1;
   while(!NRF_TEMP->EVENTS_DATARDY);
   int32_t Temp = NRF_TEMP->TEMP;
   NRF_TEMP->EVENTS_DATARDY = 0;
@@ -94,6 +107,43 @@ uint16_t BatterySense(int Samples)
 // =======================================================================================================
 
 FlashParameters Parameters;  // parameters stored in Flash: address, aircraft type, etc.
+
+// =======================================================================================================
+
+#ifdef WITH_BLE_SPP
+
+static BLEUart BLE_UART;
+
+static void BLE_StartAdvertising()
+{ Bluefruit.Advertising.stop();
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addTxPower();
+  Bluefruit.Advertising.addService(BLE_UART);
+  Bluefruit.ScanResponse.addName();
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(32, 244);
+  Bluefruit.Advertising.setFastTimeout(30);
+  Bluefruit.Advertising.start(0); }
+
+static void BLE_Init(void)
+{ Bluefruit.autoConnLed(false);
+  Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+  if(!Bluefruit.begin(1, 0)) return;
+  Bluefruit.setName(Parameters.BTname);
+  Bluefruit.setTxPower(4);
+
+  BLE_UART.begin();
+  BLE_UART.bufferTXD(true);
+  BLE_StartAdvertising();
+}
+
+bool BLE_isConnected(void) { return Bluefruit.connected(); }
+
+ // BLE_UART.availableForWrite()
+ // BLE_UART.write()
+ // BLE_UART.flush()
+
+#endif
 
 // =======================================================================================================
 
@@ -456,6 +506,9 @@ void setup()
   Parameters.setDefault(getUniqueAddress()); // set default parameter values
   if(Parameters.ReadFromNVS()<0)             // try to get parameters from NVS
   { Parameters.WriteToNVS(); }
+  if(Parameters.BTname[0]==0)                // for the BT to work
+  { Parameters.getAprsCall(Parameters.BTname);
+    Parameters.WriteToNVS(); }
 
   CONS_Mutex = xSemaphoreCreateMutex();
   I2C_Mutex = xSemaphoreCreateMutex();
@@ -517,11 +570,11 @@ void setup()
   LogFS_printStatus(Serial);
   LogFS_listRoot(Serial);
 
-  // size_t FStotal = InternalFS.totalBytes();
-  // size_t FSused  = InternalFS.usedBytes();
-  // Serial.printf("InternalFS: Total:%d Used:%d [kB]\n", (int)(FStotal>>10), (int)(FSused>10));
-
   GPS_UART_Init(GPS_getBaudRate());
+#ifdef WITH_BLE_SPP
+  BLE_Init();
+#endif
+
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
   xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 2, NULL);  // transmit/receive packets
   xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 1, NULL);  // process received packets, prepare packets for transmission

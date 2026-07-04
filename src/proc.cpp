@@ -1,9 +1,5 @@
 #include <stdint.h>
 
-// #ifdef WITH_NRF52
-// #include <nrf_temp.h>
-// #endif
-
 #include "hal.h"                      // Hardware Abstraction Layer
 
 #include "proc.h"                     // PROC task: decode/correct received packets
@@ -304,7 +300,7 @@ static bool getTelemStatus(ADSL_Packet &Packet, const GPS_Position *GPS)
   if(Packet.Telemetry.Baro.Temperature==(-128)) Packet.Telemetry.Baro.Temperature = (readMCUtemperature()+2)/5;
 #endif
 #ifdef WITH_SX1276
-  if(Packet.Telemetry.Baro.Temperature==(-128)) Packet.Telemetry.Baro.Temperature = Radio_ChipTemperature*2;
+  if(Packet.Telemetry.Baro.Temperature==(-128)) Packet.Telemetry.Baro.Temperature=Radio_ChipTemperature*2;
 #endif
   uint8_t SNR = (GPS_SatSNR+2)/4;                                   // encode number of satellites and SNR in the Status packet
   if(SNR>10) { SNR-=10; if(SNR>31) SNR=31; }

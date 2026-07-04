@@ -162,3 +162,7 @@ void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout, b
 void SysLog_Line(const char *Line, bool Timestamp, int msTimeout, bool LogOnly);
 void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout);
 void SysLog_Line(const char *Line, bool Timestamp, int msTimeout);
+
+#ifdef WITH_BLE_SPP
+bool BLE_isConnected(void);
+#endif

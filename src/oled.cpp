@@ -74,15 +74,17 @@ void OLED_DrawStatusBar(u8g2_t *OLED, const GPS_Position *GPS)   // status bar o
       u8g2_SetFontDirection(OLED, 0); }
     Odd=!Odd; }
 
+#ifdef WITH_BLE_SPP
+  if(BLE_isConnected())
+  { u8g2_SetFont(OLED, u8g2_font_open_iconic_all_1x_t);
+    u8g2_DrawGlyph(OLED, 36, 11, 0x5E); } // 0x4A
+#endif
+
+/*
 #ifdef WITH_SD
   if(SD_isMounted())
   { u8g2_SetFont(OLED, u8g2_font_twelvedings_t_all);
     u8g2_DrawGlyph(OLED, 24, 12, 0x73); }
-#endif
-#ifdef WITH_BLE_SPP
-  if(BLE_SPP_isConnected)
-  { u8g2_SetFont(OLED, u8g2_font_open_iconic_all_1x_t);
-    u8g2_DrawGlyph(OLED, 36, 11, 0x5E); } // 0x4A
 #endif
 #ifdef WITH_WIFI
   if(WIFI_isConnected())
@@ -94,7 +96,7 @@ void OLED_DrawStatusBar(u8g2_t *OLED, const GPS_Position *GPS)   // status bar o
   { u8g2_SetFont(OLED, u8g2_font_open_iconic_all_1x_t);
     u8g2_DrawGlyph(OLED, 43, 11, 0xF8); } // 0x50
 #endif
-
+*/
   static uint8_t Sec=0;
   u8g2_SetFont(OLED, u8g2_font_6x12_tr);
   strcpy(Line, "--sat --:--Z");

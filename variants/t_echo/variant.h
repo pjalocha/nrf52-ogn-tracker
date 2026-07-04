@@ -19,6 +19,7 @@ extern "C" {
 
 #define PIN_LED1 (35u) /* P1.03, red LED on common T-Echo rev2 boards */
 #define LED_BUILTIN PIN_LED1
+#define LED_BLUE PIN_LED1
 #define LED_STATE_ON 0
 #define LED_STATE_OFF 1
 

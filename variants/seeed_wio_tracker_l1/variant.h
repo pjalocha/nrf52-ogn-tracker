@@ -19,7 +19,9 @@ extern "C" {
 
 #define PIN_LED1 (33u) /* P1.01, green LED */
 #define LED_BUILTIN PIN_LED1
+#define LED_BLUE PIN_LED1
 #define LED_STATE_ON 1
+#define LED_STATE_OFF 0
 
 #define PIN_BUTTON1 (8u) /* P0.08, active low */
 
