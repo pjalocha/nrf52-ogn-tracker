@@ -164,5 +164,8 @@ void SysLog_Line(const char *Line, int LineLen, bool Timestamp, int msTimeout);
 void SysLog_Line(const char *Line, bool Timestamp, int msTimeout);
 
 #ifdef WITH_BLE_SPP
+extern SemaphoreHandle_t BLE_Mutex;
 bool BLE_isConnected(void);
+void BLE_UART_Write(char Byte);
+int  BLE_UART_Free(void);
 #endif

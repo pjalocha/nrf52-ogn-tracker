@@ -25,6 +25,9 @@
 
 SemaphoreHandle_t CONS_Mutex;
 SemaphoreHandle_t I2C_Mutex;
+#ifdef WITH_BLE_SPP
+SemaphoreHandle_t BLE_Mutex;
+#endif
 
 // =======================================================================================================
 
@@ -112,13 +115,14 @@ FlashParameters Parameters;  // parameters stored in Flash: address, aircraft ty
 
 #ifdef WITH_BLE_SPP
 
-static BLEUart BLE_UART;
+static BLEService BLE_SPP_Service(0xFFE0);
+static BLECharacteristic BLE_SPP_Char(0xFFE1);
 
 static void BLE_StartAdvertising()
 { Bluefruit.Advertising.stop();
   Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
   Bluefruit.Advertising.addTxPower();
-  Bluefruit.Advertising.addService(BLE_UART);
+  Bluefruit.Advertising.addService(BLE_SPP_Service);
   Bluefruit.ScanResponse.addName();
   Bluefruit.Advertising.restartOnDisconnect(true);
   Bluefruit.Advertising.setInterval(32, 244);
@@ -132,16 +136,36 @@ static void BLE_Init(void)
   Bluefruit.setName(Parameters.BTname);
   Bluefruit.setTxPower(4);
 
-  BLE_UART.begin();
-  BLE_UART.bufferTXD(true);
+  BLE_SPP_Service.begin();
+
+  BLE_SPP_Char.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP | CHR_PROPS_NOTIFY);
+  BLE_SPP_Char.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  BLE_SPP_Char.setMaxLen(Bluefruit.getMaxMtu(BLE_GAP_ROLE_PERIPH));
+  BLE_SPP_Char.setUserDescriptor("BLE SPP");
+  BLE_SPP_Char.begin();
+
   BLE_StartAdvertising();
 }
 
-bool BLE_isConnected(void) { return Bluefruit.connected(); }
+FIFO<char, 4096> BLE_SPP_TxFIFO;
 
- // BLE_UART.availableForWrite()
- // BLE_UART.write()
- // BLE_UART.flush()
+bool BLE_isConnected(void) { return Bluefruit.connected(); }
+bool BLE_SPP_isConnected(void) { return BLE_SPP_Char.notifyEnabled(); }
+
+static void BLE_Loop(void)
+{ if( !BLE_isConnected() || !BLE_SPP_isConnected()) { BLE_SPP_TxFIFO.flush(); return; }
+  char *Block;
+  int Size=BLE_SPP_TxFIFO.getReadBlock(Block); if(Size<=0) return;
+  uint16_t ConnHandle = Bluefruit.connHandle();
+  BLEConnection *Conn = Bluefruit.Connection(ConnHandle);
+  int Payload = Conn ? Conn->getMtu()-3 : 20;
+  if(Payload<1) Payload=20;
+  if(Size>Payload) Size=Payload;
+  if(BLE_SPP_Char.notify(ConnHandle, (uint8_t *)Block, Size))
+    BLE_SPP_TxFIFO.flushReadBlock(Size); }
+
+void BLE_UART_Write(char Byte) { BLE_SPP_TxFIFO.Write(Byte); }
+int  BLE_UART_Free(void) { return BLE_SPP_TxFIFO.Free(); }
 
 #endif
 
@@ -512,8 +536,9 @@ void setup()
 
   CONS_Mutex = xSemaphoreCreateMutex();
   I2C_Mutex = xSemaphoreCreateMutex();
-  // WIFI_Mutex = xSemaphoreCreateMutex();
-
+#ifdef WITH_BLE_SPP
+  BLE_Mutex = xSemaphoreCreateMutex();
+#endif
   Wire.setPins(I2C_PinSDA, I2C_PinSCL);
   Wire.begin();
   Wire.setClock(400000);
@@ -789,6 +814,9 @@ void loop()
 { vTaskDelay(1);
 #ifdef WITH_BEEPER
   Play_TimerCheck(1);              // handle playing notes on the buzzer
+#endif
+#ifdef WITH_BLE_SPP
+  BLE_Loop();
 #endif
   Button.loop();
 #if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)

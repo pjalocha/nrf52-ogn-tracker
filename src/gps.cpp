@@ -627,7 +627,7 @@ static void GPS_BurstEnd(void)                                             // wh
 #ifdef CONS_OUTPUT
   if(GPS_TimeSync.UTC%10==7)
   { GPS_SatMon.PrintStats(Line);
-    if((Parameters.Verbose&0b01) && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 10))
+    if(Parameters.Verbose>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 10))
     { Serial.printf("%s\n", Line);
       xSemaphoreGive(CONS_Mutex); }
   }
@@ -724,10 +724,16 @@ static void GPS_NMEA(bool Correct=1)                                        // w
   // we would need to patch the GGA here for the GPS which does not calc. nor correct for GeoidSepar
 #endif
   {
+#ifdef WITH_BLE_SPP
+    if(!NMEA.isGxGSV() && !NMEA.isGxTXT() && xSemaphoreTake(BLE_Mutex, 20))
+    { Format_String(BLE_UART_Write, (const char *)NMEA.Data, 0, NMEA.Len);
+      BLE_UART_Write('\r'); BLE_UART_Write('\n');
+      xSemaphoreGive(BLE_Mutex); }
+#endif
 #ifdef CONS_OUTPUT
 #ifdef WITH_GPS_NMEA_PASS                 // pass all GPS NMEA
 #else                                     // or filter them
-    if(Parameters.Verbose & 0b01 && !NMEA.isGxGSV() /* && !NMEA.isGxGSA() */ && !NMEA.isGxTXT())
+    if(Parameters.Verbose>0 && !NMEA.isGxGSV() /* && !NMEA.isGxGSA() */ && !NMEA.isGxTXT())
 #endif
     { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 20))
       { if(CONS_UART_Free()>=NMEA.Len+2)

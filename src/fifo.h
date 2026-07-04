@@ -78,6 +78,8 @@ template <class Type, const unsigned Size> // size must be (!) a power of 2 like
      if(ReadPtr<WritePtr) return WritePtr-ReadPtr;
      return Size-ReadPtr; }
 
+   void flush(void) { ReadPtr=WritePtr; }  // drop immediately all queues data
+
    void flushReadBlock(unsigned Len)       // flush the elements which were already read: to be used after getReadBlock()
    { ReadPtr+=Len; ReadPtr&=PtrMask; }
 

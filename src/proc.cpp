@@ -404,7 +404,7 @@ static void ReadStatus(OGN_Packet &Packet)
   uint8_t RxRateLog2=0; RxRate>>=1; while(RxRate) { RxRate>>=1; RxRateLog2++; }
   Packet.Status.RxRate = RxRateLog2;
 
-  if(Parameters.Verbose & 0b01)
+  if(Parameters.Verbose>0)
   { uint8_t Len=0;
     Len+=Format_String(Line+Len, "$POGNR,");                                  // NMEA report: radio status
     Len+=Format_UnsDec(Line+Len, (uint32_t)Radio_FreqPlan.Plan);              // which frequency plan
@@ -580,7 +580,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
     //          RxPacket->Packet.Header.AddrType, RxPacket->Packet.Header.Address, LatDist, LonDist);
 #ifdef WITH_POGNT
     { uint8_t Len=RxPacket->WritePOGNT(Line);                                         // print on the console as $POGNT
-      if(Parameters.Verbose & 0b01)
+      if(Parameters.Verbose>0)
       if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
@@ -624,15 +624,19 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
      if(Signif || Warn) IGClog_OGN_FIFO.Write(*RxPacket);
 #endif
 #ifdef WITH_PFLAA
-    if(Parameters.Verbose & 0b01)
     { uint8_t Len=0;
 #ifdef WITH_LOOKOUT
       if(Tgt) { Len=Tgt->WritePFLAA(Line); }
       else
 #endif
       { Len=RxPacket->WritePFLAA(Line, Warn, LatDist, LonDist, RxPacket->Packet.DecodeAltitude()-GPS_Altitude/10); }
+#ifdef WITH_BLE_SPP
+      if(Len>0 && xSemaphoreTake(BLE_Mutex, 25))
+      { if(BLE_UART_Free()>Len) Format_String(BLE_UART_Write, Line, 0, Len);
+        xSemaphoreGive(BLE_Mutex); }
+#endif
 #ifdef CONS_OUTPUT
-      if(Len>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
+      if(Parameters.Verbose>0 && Len>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
 #endif
@@ -641,7 +645,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
 #endif // WITH_PFLAA
 /*
 #ifdef WITH_PFLAA
-    if( (Parameters.Verbose & 0b01)   // print PFLAA on the console for the received packet
+    if( (Parameters.Verbose>0)   // print PFLAA on the console for the received packet
 #ifdef WITH_LOOKOUT
     && (!Tgt)
 #endif
@@ -754,15 +758,19 @@ static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t
     if(Signif || Warn) IGClog_ADSL_FIFO.Write(*RxPacket);
 #endif
 #ifdef WITH_PFLAA
-    if(Parameters.Verbose & 0b01)
     { uint8_t Len=0;
 #ifdef WITH_LOOKOUT
       if(Tgt) { Len=Tgt->WritePFLAA(Line); }
       else
 #endif
       { Len=RxPacket->Packet.WritePFLAA(Line, Warn, LatDist, LonDist, RxPacket->Packet.getAlt()-(GPS_Altitude+GPS_GeoidSepar)/10); }
+#ifdef WITH_BLE_SPP
+      if(Len>0 && xSemaphoreTake(BLE_Mutex, 25))
+      { if(BLE_UART_Free()>Len) Format_String(BLE_UART_Write, Line, 0, Len);
+        xSemaphoreGive(BLE_Mutex); }
+#endif
 #ifdef CONS_OUTPUT
-      if(Len>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
+      if(Parameters.Verbose>0 && Len>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
       { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
         xSemaphoreGive(CONS_Mutex); }
 #endif
@@ -771,7 +779,7 @@ static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t
 #endif // WITH_PFLAA
 /*
 #ifdef WITH_PFLAA
-    if( Parameters.Verbose & 0b01   // print PFLAA on the console for received packets
+    if( Parameters.Verbose>0   // print PFLAA on the console for received packets
 #ifdef WITH_LOOKOUT
     && (!Tgt)
 #endif
@@ -923,7 +931,6 @@ static void DecodeRxFLR(FSK_RxPacket *RxPkt)
 static void DecodeRxPacket(FSK_RxPacket *RxPkt)
 {
 #ifdef WITH_SDLOG
-  // if(Parameters.Verbose&0b10)
   { int Len=sprintf(Line, ">%u:%4d [%d:%d] #%d %+4.1fdBm ",                // dump received packet to the SD log
           RxPkt->Time, RxPkt->msTime, RxPkt->SysID, RxPkt->Bytes, RxPkt->Channel, -0.5*RxPkt->RSSI);
     for(uint8_t Idx=0; Idx<RxPkt->Bytes; Idx++)
@@ -1237,8 +1244,13 @@ void vTaskPROC(void* pvParameters)
       // process own position, get the most dangerous target
       const LookOut_Target *Tgt=Look.ProcessOwn(PosPacket.Packet, PosTime, Position->GeoidSeparation/10);
 #ifdef WITH_PFLAA
+#ifdef WITH_BLE_SPP
+      if(xSemaphoreTake(BLE_Mutex, 25))
+      { if(BLE_UART_Free()>80) Look.WritePFLA(BLE_UART_Write);
+        xSemaphoreGive(BLE_Mutex); }
+#endif
 #ifdef CONS_OUTPUT
-      if(Parameters.Verbose & 0b01)
+      if(Parameters.Verbose>0)
       { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
         { if(CONS_UART_Free()>80) Look.WritePFLA(CONS_UART_Write);        // produce PFLAU and PFLAA for all tracked targets
           xSemaphoreGive(CONS_Mutex); }
@@ -1246,10 +1258,14 @@ void vTaskPROC(void* pvParameters)
       }
 #endif
 #else // WITH_PFLAA
-      if(Parameters.Verbose & 0b01)
       { uint8_t Len=Look.WritePFLAU(Line);                                // $PFLAU, overall status
+#ifdef WITH_BLE_SPP
+        if(Len>0 && xSemaphoreTake(BLE_Mutex, 25))
+        { if(BLE_UART_Free()>Len) Format_String(BLE_UART_Write, Line, 0, Len);
+          xSemaphoreGive(BLE_Mutex); }
+#endif
 #ifdef CONS_OUTPUT
-        if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
+        if(Parameters.Verbose>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
         { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
           xSemaphoreGive(CONS_Mutex); }
 #endif
@@ -1317,10 +1333,14 @@ void vTaskPROC(void* pvParameters)
       }
 #else  // WITH_LOOKOUT
 #ifdef WITH_PFLAA
-      if(Parameters.Verbose & 0b01)
       { uint8_t Len=Look.WritePFLAU(Line);                                // $PFLAU, overall status
+#ifdef WITH_BLE_SPP
+        if(Len>0 && xSemaphoreTake(BLE_Mutex, 25))
+        { if(BLE_UART_Free()>Len) Format_String(BLE_UART_Write, Line, 0, Len);
+          xSemaphoreGive(BLE_Mutex); }
+#endif
 #ifdef CONS_OUTPUT
-        if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
+        if(Parameters.Verbose>0 && CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
         { if(CONS_UART_Free()>Len) Format_String(CONS_UART_Write, Line, 0, Len);
           xSemaphoreGive(CONS_Mutex); }
 #endif
