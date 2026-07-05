@@ -380,7 +380,7 @@ static const int16_t TrafficMapY = 38;
 static const int16_t TrafficMapW = 200;
 static const int16_t TrafficMapH = 140;
 static const int16_t TrafficMapCenterX = 100;
-static const int16_t TrafficMapCenterY = 108;
+static const int16_t TrafficMapCenterY = 110;
 static const int16_t TrafficMapRadius  = 68;
 static const int16_t TrafficMapRange[] = { 1000, 2000, 4000, 8000, 16000 }; // [m] map range: outer circle
 static uint8_t TrafficMapRangeIdx = 2;
@@ -585,8 +585,8 @@ void EPD_TrafficRange_Next(void)
 static uint32_t UpdateTime = 0;
 static uint32_t RedrawTime = 0;
 static uint8_t PartUpd = 0;
-static const uint8_t  FullRefreshPartUpd = 25;
-static const uint32_t FullRefreshMinPeriod = 300000;
+static const uint8_t  FullRefreshPartUpd = 12;
+static const uint32_t FullRefreshMinPeriod = 1000;
 static uint8_t PrevPowerMode = 0xFF;
 static volatile bool FullRefreshRequested = false;
 
@@ -604,7 +604,8 @@ void EPD_DrawID(void)
             else { DrawLogo(); DrawLogoCopyright(); DrawPowerOffMark(); }
   EPD.setTextColor(GxEPD_BLACK);
   EPD.setFont(&FreeMonoBold9pt7b);                               // use bold font: more readable
-  sprintf(Line, "%X:%d:%06X %s", Parameters.AcftType, Parameters.AddrType, Parameters.Address, Parameters.Reg);
+  const char *AddrTypeLetter = "RIFO";
+  sprintf(Line, "%s:%c:%06X %s", Parameters.AcftTypeName(), AddrTypeLetter[Parameters.AddrType], Parameters.Address, Parameters.Reg);
   // sprintf(Line, "%s:%d:%06X %s", Parameters.AcftTypeName(), Parameters.AddrType, Parameters.Address, Parameters.Reg);
   EPD.setCursor(0, 195);
   EPD.print(Line);
