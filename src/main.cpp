@@ -282,7 +282,9 @@ static void Button_Long(Button2 Butt)
 #endif
 #ifdef WITH_EPAPER
   EPD_BacklightOff();
-  EPD_DrawID();
+  uint32_t WaitStart = millis();
+  while(!EPD_IsPowerOffReady() && (uint32_t)(millis()-WaitStart)<8000)
+  { vTaskDelay(50); }
 #endif
 #ifdef GPS_PinEna
   GPS_DISABLE();
@@ -364,7 +366,7 @@ uint32_t PPS_usPeriodRMS = 0;   // [(1/4us)^2] mean square of statistical error
 
 const uint32_t PPS_usPeriod = 1000000;  // [usec] expected PPS period = 1sec = 10000000usec
 
-static void PPS_Intr(void *Context)
+static void PPS_Intr(void)
 { uint32_t usTime = micros();                                     // [usec] usec-clock at interrupt time
   uint32_t msTime = xTaskGetTickCount();                          // [msec] mses-clock at interrupt time
   uint32_t usDelta = usTime - PPS_Intr_usTime;                    // difference from the previous PPS
@@ -511,8 +513,31 @@ void SysLog_Line(const char *Line, bool Timestamp, int msTimeout)
 
 static char Line[512];
 
+#if defined(WITH_T_ECHO)
+static void T_Echo_StayOffOnChargerWake(void)
+{
+  uint32_t ResetReason = NRF_POWER->RESETREAS;
+  NRF_POWER->RESETREAS = ResetReason;
+
+  bool WokeFromSystemOff = ResetReason & POWER_RESETREAS_OFF_Msk;
+  bool WokeFromVBUS      = ResetReason & POWER_RESETREAS_VBUS_Msk;
+  bool WokeFromResetPin  = ResetReason & POWER_RESETREAS_RESETPIN_Msk;
+
+  pinMode(Button_Pin, INPUT_PULLUP);
+  bool ButtonPressed = digitalRead(Button_Pin)==LOW;
+
+  if(WokeFromSystemOff && WokeFromVBUS && !WokeFromResetPin && !ButtonPressed)
+  { systemOff(Button_Pin, LOW);
+    while(1) __WFI(); }
+}
+#endif
+
 void setup()
 {
+#if defined(WITH_T_ECHO)
+  T_Echo_StayOffOnChargerWake();
+#endif
+
   pinMode(LED_PinRed, OUTPUT);
   digitalWrite(LED_PinRed  , LED_StateOn);
 #ifdef LED_PinGreen

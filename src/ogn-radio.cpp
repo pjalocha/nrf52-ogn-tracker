@@ -702,7 +702,7 @@ static int Radio_Receive(uint8_t PktLen, uint8_t SysID, uint8_t Channel, TimeSyn
   // RxPkt->PosTime = TimeRef.sysTime;                                      // [ms]
   RxPkt->msTime = (int32_t)(msTime-TimeRef.sysTime);                     // [ms] time since the reference PPS
   RxPkt->Time = TimeRef.UTC;                                             // [sec] UTC PPS
-  if(RxPkt->msTime<0) { RxPkt->msTime+1024; RxPkt->Time--; }
+  if(RxPkt->msTime<0) { RxPkt->msTime+1000; RxPkt->Time--; }
   RxPkt->SNR  = 0; // PktStat>>8;                                        // this should be SYNC RSSI but it does not fit this way
   uint8_t RxPktLen=PktLen; if(!Manch && PktLen==0) RxPktLen=RxLen;
   if(Manch)                                                              // if Manchester encoding expected
@@ -1137,9 +1137,9 @@ static void Radio_ConfigLoRaWAN(uint8_t Chan, bool TX, float TxPower, uint8_t CR
 template <class Type>
  void Swap(Type &A, Type &B) { Type C=A; A=B; B=C; }
 
-const int Slot1_Start =  (450*1024)/1000; // [ms] we need to convert from true ms to RTOS ticks which are 1024Hz
-const int Slot2_Start =  (825*1024)/1000; // [ms]
-const int Slot2_End   = (1200*1024)/1000; // [ms]
+const int Slot1_Start =  450; // [ms]
+const int Slot2_Start =  825; // [ms]
+const int Slot2_End   = 1200; // [ms]
 
 void Radio_Task(void *Parms)
 {

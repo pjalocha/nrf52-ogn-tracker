@@ -13,7 +13,7 @@
 #include <InternalFileSystem.h>
 
 // #define millis() (xTaskGetTickCount())
-#define xTaskGetTickCount() (millis())
+#define xTaskGetTickCount() (millis())            // instead of the RTOS tick counter we read the Arduino millis()
 
 // #define esp_err_t int
 

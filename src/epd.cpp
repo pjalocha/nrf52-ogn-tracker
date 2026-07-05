@@ -310,6 +310,24 @@ static void DrawBattFrame(void)
   EPD.fillRect(145, 5,  5, 10, GxEPD_BLACK);
   PrevBattLev=0; }
 
+static void DrawBattStatus(void)
+{ char Line[16];
+
+  int16_t BattVolt=(BatteryVoltage+128)>>8;                      // [mV] measured and averaged battery voltage
+  int16_t BattLev=(BattVolt-3300)/8;
+  if(BattLev<0) BattLev=0;
+  else if(BattLev>100) BattLev=100;
+
+  EPD.fillRect(140, 0, 60, 21, GxEPD_WHITE);
+  if(BattLev>2) greyRect(199-BattLev/2, 1, BattLev/2, 19, 3);
+  EPD.setTextColor(GxEPD_BLACK);
+  EPD.setFont(&FreeMonoBold9pt7b);
+  EPD.setCursor(154, 15);
+  sprintf(Line, "%3d%%", BattLev);
+  EPD.print(Line);
+  DrawBattFrame();
+  PrevBattLev=BattLev; }
+
 static bool UpdateBatt(void)
 { char Line[16];
 
@@ -589,12 +607,17 @@ static const uint8_t  FullRefreshPartUpd = 12;
 static const uint32_t FullRefreshMinPeriod = 1000;
 static uint8_t PrevPowerMode = 0xFF;
 static volatile bool FullRefreshRequested = false;
+static volatile bool PowerOffReady = false;
 
 void EPD_RequestFullRefresh(void)
 { FullRefreshRequested = true; }
 
+bool EPD_IsPowerOffReady(void)
+{ return PowerOffReady; }
+
 void EPD_DrawID(void)
 { char Line[40];
+  if(PowerMode>0) PowerOffReady=false;
   EPD.setFullWindow();                                           // this will be full page update
   EPD.firstPage();
   EPD.fillScreen(GxEPD_WHITE);                                   // all-white screen
@@ -610,10 +633,11 @@ void EPD_DrawID(void)
   EPD.setCursor(0, 195);
   EPD.print(Line);
   // drawSpeaker(110, 16, 32, GxEPD_BLACK);
-  DrawAcftCount();
-  DrawAlarmThresh();
-  DrawBattFrame();
-  DrawPktRateBar();
+  if(!isPowerOffDisplay())
+  { DrawAcftCount();
+    DrawAlarmThresh();
+    DrawPktRateBar(); }
+  DrawBattStatus();
   PrevPktRateLevel=PktRateLevel();
   EPD.nextPage();                                                // put full page onto the e-paper (takes 2 sec)
   UpdateTime = millis();
@@ -623,10 +647,15 @@ void EPD_DrawID(void)
 #ifdef WITH_LOOKOUT
   TrafficMapWarn=Look.WarnLevel;
 #endif
-  PartUpd=0; }
+  PartUpd=0;
+  if(isPowerOffDisplay())
+  { EPD.powerOff();
+    PowerOffReady=true; }
+}
 
 void EPD_UpdateID(void)
 { uint32_t msTime=millis();
+  if(PowerMode==0 && PowerOffReady) return;
   if(FullRefreshRequested)
   { FullRefreshRequested = false;
     EPD_DrawID();
