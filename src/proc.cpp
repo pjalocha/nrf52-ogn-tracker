@@ -1280,27 +1280,17 @@ void vTaskPROC(void* pvParameters)
       if( (Warn>0) /* && (AverSpeed>=10) */ )                                    // if non-zero warning level and we seem to be moving
       { // int16_t RelBearing = Look.getRelBearing(Tgt);                      // relative bearing to the Target
         // int8_t Bearing = (12*(int32_t)RelBearing+0x8000)>>16;              // [-12..+12]
-#ifdef WITH_EPAPER
-        EPD_BacklightOn(30000);
-#endif
 #ifdef WITH_FLASHER
         if(Warn>0) Flasher_Play(Flasher_PattDouble);
         if(Warn>1) Flasher_Play(Flasher_PattDouble);
         if(Warn>2) Flasher_Play(Flasher_PattDouble);
 #endif
 #ifdef WITH_BEEPER                                                         // make the sound according to the level
-#ifdef WITH_WIO_TRACKER
         // Measured resonant region of the fitted Wio buzzer: 2.45-2.65kHz.
         const uint8_t NearTone  = Play_Oct_1 | 2;
         const uint8_t Warn1Tone = Play_Oct_2 | 2;
         const uint8_t Warn2Tone = Play_Oct_2 | 3;
         const uint8_t Warn3Tone = Play_Oct_2 | 4; // 2637Hz
-#else
-        const uint8_t NearTone  = Play_Oct_1 | 0;
-        const uint8_t Warn1Tone = Play_Oct_1 | 4;
-        const uint8_t Warn2Tone = Play_Oct_1 | 8;
-        const uint8_t Warn3Tone = Play_Oct_1 | 11;
-#endif
         static uint8_t NearBackOff=0;
         if(Warn==0)
         { if(AlarmThresh<=1)

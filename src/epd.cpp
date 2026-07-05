@@ -27,7 +27,13 @@ static bool EPD_BacklightState = false;
 static void EPD_BacklightWrite(bool ON)
 {
 #ifdef EPD_PinBL
-  digitalWrite(EPD_PinBL, ON ? HIGH : LOW);
+#ifndef EPD_BacklightOnState
+#define EPD_BacklightOnState HIGH
+#endif
+#ifndef EPD_BacklightOffState
+#define EPD_BacklightOffState LOW
+#endif
+  digitalWrite(EPD_PinBL, ON ? EPD_BacklightOnState : EPD_BacklightOffState);
   EPD_BacklightState = ON;
 #else
   (void)ON;
@@ -98,35 +104,6 @@ static uint32_t Hash(const uint32_t *Data, int Size)
     Sum+=Data[Idx];
   return Sum; }
 
-static void EPD_AlignPartialWindow(int16_t &X, int16_t &Y, int16_t &W, int16_t &H)
-{
-  if(EPD_Rotation&1)
-  { int16_t Y1 = Y&~7;
-    int16_t Y2 = (Y+H+7)&~7;
-    Y=Y1; H=Y2-Y1; }
-  else
-  { int16_t X1 = X&~7;
-    int16_t X2 = (X+W+7)&~7;
-    X=X1; W=X2-X1; }
-  if(X<0) { W+=X; X=0; }
-  if(Y<0) { H+=Y; Y=0; }
-  if(X+W>EPD.width()) W=EPD.width()-X;
-  if(Y+H>EPD.height()) H=EPD.height()-Y;
-}
-
-template <class DrawFunc>
-static void EPD_UpdatePartialWindow(int16_t X, int16_t Y, int16_t W, int16_t H, DrawFunc Draw)
-{
-  EPD_AlignPartialWindow(X, Y, W, H);
-  if(W<=0 || H<=0) return;
-  EPD.setPartialWindow(X, Y, W, H);
-  EPD.firstPage();
-  do
-  { EPD.fillRect(X, Y, W, H, GxEPD_WHITE);
-    Draw(); }
-  while(EPD.nextPage());
-}
-
 // ========================================================================================================================
 
 static const uint8_t MaxSats=32;
@@ -172,8 +149,11 @@ static bool UpdateSatMon(void)
   uint8_t ClearSize=Size; if(DrawSats>ClearSize) ClearSize=DrawSats;
   DrawSats=Size;
   if(ClearSize==0) return 0;
-  EPD_UpdatePartialWindow(0, 0, ClearSize*4, 40, [&]()
-  { DrawSatMon(Size); });
+  EPD.setPartialWindow(0, 0, ClearSize*4, 40);                       // partial update
+  EPD.fillRect(0, 0, ClearSize*4, 40, GxEPD_WHITE);                  // clear the area to be redrawn
+  EPD.firstPage();
+  DrawSatMon(Size);
+  EPD.nextPage();
   return 1; }
 
 // ========================================================================================================================
@@ -218,8 +198,11 @@ static void DrawAlarmThresh(void)
 static bool UpdateAlarmThresh(void)
 { if(PrevAlarmThresh==AlarmThresh) return 0;
   // PrevAlarmThresh=AlarmThresh;
-  EPD_UpdatePartialWindow(AlarmX-17, AlarmY, 35, 39, []()
-  { DrawAlarmThresh(); });
+  EPD.setPartialWindow(AlarmX-17, AlarmY, 35, 39);               // partial update
+  EPD.fillRect(AlarmX-17, AlarmY, 35, 39, GxEPD_WHITE);          // clear the area to be redrawn
+  EPD.firstPage();
+  DrawAlarmThresh();
+  EPD.nextPage();
   return 1; }
 
 // ========================================================================================================================
@@ -251,8 +234,11 @@ static bool UpdatePktRateBar(void)
   uint8_t Level = PktRateLevel();
   if(Level==PrevPktRateLevel) return 0;
   PrevPktRateLevel=Level;
-  EPD_UpdatePartialWindow(0, 54, 12, 112, []()
-  { DrawPktRateBar(); });
+  EPD.setPartialWindow(0, 54, 12, 112);
+  EPD.firstPage();
+  EPD.fillRect(0, 54, 12, 112, GxEPD_WHITE);
+  DrawPktRateBar();
+  EPD.nextPage();
   return 1; }
 
 // ========================================================================================================================
@@ -298,8 +284,11 @@ static bool UpdateAcftCount(void)
   uint8_t Count = getAcftCount();
   if(Count>99) Count=99;
   if(PrevAcftCountVisible==Visible && (!Visible || PrevAcftCount==Count)) return 0;
-  EPD_UpdatePartialWindow(68, 0, 38, 38, []()
-  { DrawAcftCount(); });
+  EPD.setPartialWindow(68, 0, 38, 38);                         // partial update
+  EPD.fillRect(68, 0, 38, 38, GxEPD_WHITE);                    // clear the area to be redrawn
+  EPD.firstPage();
+  DrawAcftCount();
+  EPD.nextPage();
   return 1; }
 
 // ========================================================================================================================
@@ -330,14 +319,17 @@ static bool UpdateBatt(void)
   else if(BattLev>100) BattLev=100;
   if(BattLev==PrevBattLev) return 0;
 
-  EPD_UpdatePartialWindow(140, 0, 60, 21, [&]()
-  { if(BattLev>2) greyRect(199-BattLev/2, 1, BattLev/2, 19, 3);
-    EPD.setTextColor(GxEPD_BLACK);
-    EPD.setFont(&FreeMonoBold9pt7b);                             // use bold font: more readable
-    EPD.setCursor(154, 15);
-    sprintf(Line, "%3d%%", BattLev);
-    EPD.print(Line);
-    DrawBattFrame(); });
+  EPD.setPartialWindow(145, 0, 55, 21);                          // partial update: the inside of the battery box
+  EPD.firstPage();
+  EPD.fillRect(140, 0, 55, 21, GxEPD_WHITE);                     // clear the area to be redrawn
+  if(BattLev>2) greyRect(199-BattLev/2, 1, BattLev/2, 19, 3);
+  EPD.setTextColor(GxEPD_BLACK);
+  EPD.setFont(&FreeMonoBold9pt7b);                               // use bold font: more readable
+  EPD.setCursor(154, 15);
+  sprintf(Line, "%3d%%", BattLev);
+  EPD.print(Line);
+  DrawBattFrame();
+  EPD.nextPage();
   PrevBattLev=BattLev;
   return 1; }
 
@@ -384,11 +376,11 @@ static void DrawPowerOffMark(void)
 // ========================================================================================================================
 
 static const int16_t TrafficMapX = 0;
-static const int16_t TrafficMapY = 42;
+static const int16_t TrafficMapY = 38;
 static const int16_t TrafficMapW = 200;
 static const int16_t TrafficMapH = 140;
 static const int16_t TrafficMapCenterX = 100;
-static const int16_t TrafficMapCenterY = 112;
+static const int16_t TrafficMapCenterY = 108;
 static const int16_t TrafficMapRadius  = 68;
 static const int16_t TrafficMapRange[] = { 1000, 2000, 4000, 8000, 16000 }; // [m] map range: outer circle
 static uint8_t TrafficMapRangeIdx = 2;
@@ -433,7 +425,7 @@ static void DrawTrafficGrid(void)
   if(TrafficMapRange[TrafficMapRangeIdx]<1000) sprintf(Line, "%dm", TrafficMapRange[TrafficMapRangeIdx]);
                                           else sprintf(Line, "%dkm", TrafficMapRange[TrafficMapRangeIdx]/1000);
   EPD.setFont(&FreeMonoBold9pt7b);
-  EPD.setCursor(158, 179);
+  EPD.setCursor(158, 175);
   EPD.print(Line); }
 
 static void DrawTrafficTarget(int16_t X, int16_t Y, uint16_t Heading, uint8_t Warn)
@@ -575,8 +567,11 @@ static bool UpdateTrafficMap(void)
   TrafficMapWarn=Look.WarnLevel;
 #endif
 
-  EPD_UpdatePartialWindow(TrafficMapX, TrafficMapY, TrafficMapW, TrafficMapH, []()
-  { DrawTrafficMap(); });
+  EPD.setPartialWindow(TrafficMapX, TrafficMapY, TrafficMapW, TrafficMapH);
+  EPD.firstPage();
+  EPD.fillRect(TrafficMapX, TrafficMapY, TrafficMapW, TrafficMapH, GxEPD_WHITE);
+  DrawTrafficMap();
+  EPD.nextPage();
   return 1; }
 
 void EPD_TrafficRange_Next(void)
@@ -593,30 +588,33 @@ static uint8_t PartUpd = 0;
 static const uint8_t  FullRefreshPartUpd = 25;
 static const uint32_t FullRefreshMinPeriod = 300000;
 static uint8_t PrevPowerMode = 0xFF;
+static volatile bool FullRefreshRequested = false;
+
+void EPD_RequestFullRefresh(void)
+{ FullRefreshRequested = true; }
 
 void EPD_DrawID(void)
 { char Line[40];
   EPD.setFullWindow();                                           // this will be full page update
   EPD.firstPage();
-  do
-  { EPD.fillScreen(GxEPD_WHITE);                                 // all-white screen
-    PrevPowerMode=PowerMode;
-    PrevGPSLock=hasStableGPSLock();
-    if(PrevGPSLock) DrawTrafficMap();
-              else { DrawLogo(); DrawLogoCopyright(); DrawPowerOffMark(); }
-    EPD.setTextColor(GxEPD_BLACK);
-    EPD.setFont(&FreeMonoBold12pt7b);                            // use bold font: more readable
-    sprintf(Line, "%X:%d:%06X %s", Parameters.AcftType, Parameters.AddrType, Parameters.Address, Parameters.Reg);
-    // sprintf(Line, "%s:%d:%06X %s", Parameters.AcftTypeName(), Parameters.AddrType, Parameters.Address, Parameters.Reg);
-    EPD.setCursor(0, 192);
-    EPD.print(Line);
-    // drawSpeaker(110, 16, 32, GxEPD_BLACK);
-    DrawAcftCount();
-    DrawAlarmThresh();
-    DrawBattFrame();
-    DrawPktRateBar();
-    PrevPktRateLevel=PktRateLevel(); }
-  while(EPD.nextPage());                                         // put full page onto the e-paper (takes 2 sec)
+  EPD.fillScreen(GxEPD_WHITE);                                   // all-white screen
+  PrevPowerMode=PowerMode;
+  PrevGPSLock=hasStableGPSLock();
+  if(PrevGPSLock) DrawTrafficMap();
+            else { DrawLogo(); DrawLogoCopyright(); DrawPowerOffMark(); }
+  EPD.setTextColor(GxEPD_BLACK);
+  EPD.setFont(&FreeMonoBold9pt7b);                               // use bold font: more readable
+  sprintf(Line, "%X:%d:%06X %s", Parameters.AcftType, Parameters.AddrType, Parameters.Address, Parameters.Reg);
+  // sprintf(Line, "%s:%d:%06X %s", Parameters.AcftTypeName(), Parameters.AddrType, Parameters.Address, Parameters.Reg);
+  EPD.setCursor(0, 195);
+  EPD.print(Line);
+  // drawSpeaker(110, 16, 32, GxEPD_BLACK);
+  DrawAcftCount();
+  DrawAlarmThresh();
+  DrawBattFrame();
+  DrawPktRateBar();
+  PrevPktRateLevel=PktRateLevel();
+  EPD.nextPage();                                                // put full page onto the e-paper (takes 2 sec)
   UpdateTime = millis();
   RedrawTime=UpdateTime;
   TrafficMapTime=UpdateTime;
@@ -628,6 +626,10 @@ void EPD_DrawID(void)
 
 void EPD_UpdateID(void)
 { uint32_t msTime=millis();
+  if(FullRefreshRequested)
+  { FullRefreshRequested = false;
+    EPD_DrawID();
+    return; }
   if(PrevPowerMode!=PowerMode)
   { PrevPowerMode=PowerMode;
     EPD_DrawID();

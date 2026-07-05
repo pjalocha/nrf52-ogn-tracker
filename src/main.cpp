@@ -253,6 +253,7 @@ static void Button_Single(Button2 Butt)
 #ifdef WITH_EPAPER
   if(EPD_IsRadarView())
   { EPD_TrafficRange_Next();
+    EPD_RequestFullRefresh();
     return; }
 #endif
 #ifdef WITH_OLED
@@ -270,6 +271,7 @@ static void Button_Double(Button2 Butt)
 {
 #ifdef WITH_EPAPER
   EPD_BacklightOn(15000);
+  EPD_RequestFullRefresh();
 #endif
 }
 

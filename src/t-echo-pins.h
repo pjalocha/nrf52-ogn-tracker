@@ -45,6 +45,9 @@
 #define EPD_PinBusy   _PINNUM(0,  3)
 #define EPD_PinBL     _PINNUM(1, 11)
 
+#define EPD_BacklightOnState  HIGH
+#define EPD_BacklightOffState LOW
+
 // Power enables
 #define IO_Power_Pin  _PINNUM(0, 12) // EPD/RGB/CN1, and GNSS/sensor on rev2
 #define RF_Power_Pin  _PINNUM(0, 13) // RF 3V3 on rev2
