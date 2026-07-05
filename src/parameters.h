@@ -421,7 +421,7 @@ uint16_t StratuxPort;
 
 #ifdef WITH_NRF52
   int WriteToNVS(const char *Name="/tracker.prm")
-  {
+  { setCheckSum();
 #ifdef WITH_WIO_TRACKER
     return LogFS_writeFile(Name, this, sizeof(FlashParameters));
 #else
@@ -439,7 +439,9 @@ uint16_t StratuxPort;
   int ReadFromNVS(const char *Name="/tracker.prm")
   {
 #ifdef WITH_WIO_TRACKER
-    return LogFS_readFile(Name, this, sizeof(FlashParameters));
+    int Read=LogFS_readFile(Name, this, sizeof(FlashParameters));
+    if(calcCheckSum()!=0) return -3;
+    return Read;
 #else
     Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_READ);
     if (!ParmFile) return -1;
@@ -447,6 +449,7 @@ uint16_t StratuxPort;
     int Read = ParmFile.read((uint8_t *)this, Size);
     ParmFile.close();
     if(Read!=Size) return -2;
+    if(calcCheckSum()!=0) return -3;
     return Read;
 #endif
   }

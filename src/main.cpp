@@ -1,4 +1,3 @@
-
 #include "main.h"
 #include "gps.h"
 #include "proc.h"
@@ -541,10 +540,10 @@ void setup()
   Button_Init();
   InternalFS.begin();
   HardwareStatus.SPIFFS = LogFS_begin();
-  Parameters.setDefault(getUniqueAddress()); // set default parameter values
-  if(Parameters.ReadFromNVS()<0)             // try to get parameters from NVS
-  { Parameters.WriteToNVS(); }
-  if(Parameters.BTname[0]==0)                // for the BT to work
+  if(Parameters.ReadFromNVS()<0)               // try to get parameters from NVS
+  { Parameters.setDefault(getUniqueAddress()); // set default parameter values
+    Parameters.WriteToNVS(); }
+  if(Parameters.BTname[0]==0)                  // for the BT to work
   { Parameters.getAprsCall(Parameters.BTname);
     Parameters.WriteToNVS(); }
 
