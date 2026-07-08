@@ -702,7 +702,7 @@ static int Radio_Receive(uint8_t PktLen, uint8_t SysID, uint8_t Channel, TimeSyn
   // RxPkt->PosTime = TimeRef.sysTime;                                      // [ms]
   RxPkt->msTime = (int32_t)(msTime-TimeRef.sysTime);                     // [ms] time since the reference PPS
   RxPkt->Time = TimeRef.UTC;                                             // [sec] UTC PPS
-  if(RxPkt->msTime<0) { RxPkt->msTime+1000; RxPkt->Time--; }
+  if(RxPkt->msTime<0) { RxPkt->msTime+=1000; RxPkt->Time--; }
   RxPkt->SNR  = 0; // PktStat>>8;                                        // this should be SYNC RSSI but it does not fit this way
   uint8_t RxPktLen=PktLen; if(!Manch && PktLen==0) RxPktLen=RxLen;
   if(Manch)                                                              // if Manchester encoding expected
