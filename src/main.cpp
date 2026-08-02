@@ -277,9 +277,9 @@ static void Button_Double(Button2 Butt)
 
 static void Button_Long(Button2 Butt)
 { PowerMode=0;
-#ifdef WITH_BEEPER
-  Beep_Off();
-#endif
+// #ifdef WITH_BEEPER
+//   Beep_Off();
+// #endif
 #ifdef WITH_EPAPER
   EPD_BacklightOff();
   uint32_t WaitStart = millis();

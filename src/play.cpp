@@ -10,11 +10,6 @@
 
 #ifdef WITH_BEEPER
 
-void Beep_Off(void)
-{ noTone(Buzzer_Pin);
-  pinMode(Buzzer_Pin, OUTPUT);
-  digitalWrite(Buzzer_Pin, LOW); }
-
 #ifdef WITH_BEEPER_GEN   // if buzzer with internal single-tone generator is used
 
 void Beep_Init(void)
@@ -40,12 +35,12 @@ void Beep(uint16_t Freq, uint8_t Duty, uint8_t DoubleAmpl) // [Hz, 1/256] play s
 static const uint16_t NoteFreq[12] =      { 16744, 17740, 18795, 19912, 21096, 22351, 23680, 25088, 26579, 28160, 29834, 31608 } ;
 
 void Beep_Note(uint8_t Note) // Note = VVOONNNN: VV = Volume, OO=Octave, NNNN=Note
-{ uint8_t Volume =  Note>>6;                             // [0..3]           // 2 volume bits
+{ uint8_t Volume =  Note>>6;                             // [0..3]           // 2 volume bit
   uint8_t Octave = (Note>>4)&0x03;                       // [0..3]           // 2 octave bits
   Note &= 0x0F; if(Note>=12) { Note-=12; Octave+=1; }    // [0..11] [0..4]   // 4 note bits
   uint8_t Duty = 0; uint8_t DoubleAmpl=0;
   if(Volume) { Duty=0x10; Duty<<=Volume; }               // Volume => Duty = 0x00, 0x20, 0x40, 0x80
-  if(Volume>2) { DoubleAmpl=1; }                         // DoubleAmpl = 0, 0, 1, 1
+  if(Volume>1) { DoubleAmpl=1; }                         // DoubleAmpl = 0, 0, 1, 1
   uint16_t Freq = NoteFreq[Note];
   // if(Octave) { /* Freq += 1<<(Octave-1); */ Freq >>= (5-Octave); }
   Freq >>= (5-Octave);
@@ -60,26 +55,15 @@ void Beep_Note(uint8_t Note) // Note = VVOONNNN: VV = Volume, OO=Octave, NNNN=No
 
 static volatile uint8_t Play_Note=0;             // Note being played
 static volatile uint8_t Play_Counter=0;          // [ms] time counter
-static volatile bool Play_Enabled=true;
 
-static FIFO<uint16_t,  64> Play_FIFO;            // queue of notes to play
+static FIFO<uint16_t,  64> Play_FIFO;            // queue of notes to play: upper byte is the note, and lower byte is duration
 // static FIFO<uint16_t, 128> Morse_FIFO;           // queue for Morse messages
 
 void Play(uint8_t Note, uint8_t Len)             // [Note] [ms] put a new note to play in the queue
 { // Serial.printf("Play(0x%02X, %d)\n", Note, Len);
-  if(!Play_Enabled) return;
   uint16_t Word = Note; Word<<=8; Word|=Len; Play_FIFO.Write(Word); }
 
 uint8_t Play_isBusy(void) { return Play_Counter; } // is a note being played right now ?
-
-bool Play_isEnabled(void) { return Play_Enabled; }
-
-void Play_SetEnabled(bool Enabled)
-{ Play_Enabled=Enabled;
-  Play_FIFO.Clear();
-  Play_Counter=0;
-  Play_Note=0;
-  Beep(0); }
 
 void Play_Morse(char Char, uint8_t Note, uint8_t DotLen)
 { if(Char<' ') return;                                      //
@@ -101,8 +85,7 @@ void Play_Morse(char Char, uint8_t Note, uint8_t DotLen)
 // }
 
 void Play_TimerCheck(uint8_t Ticks)              // every ms serve the note playing
-{ if(!Play_Enabled) return;
-  uint8_t Counter=Play_Counter;
+{ uint8_t Counter=Play_Counter;
   if(Counter)                                    // if counter non-zero
   { if(Counter>Ticks) Counter-=Ticks;            // decrement it
                  else Counter=0;
@@ -128,3 +111,4 @@ void Play_TimerCheck(uint8_t Ticks)              // every ms serve the note play
 }
 
 #endif
+

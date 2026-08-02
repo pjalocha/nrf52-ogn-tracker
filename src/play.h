@@ -1,17 +1,16 @@
 #pragma once
 
-const uint8_t Play_Vol_0 = 0x00;
+const uint8_t Play_Vol_0 = 0x00;   // level of volume but not used
 const uint8_t Play_Vol_1 = 0x40;
 const uint8_t Play_Vol_2 = 0x80;
 const uint8_t Play_Vol_3 = 0xC0;
 
-const uint8_t Play_Oct_0 = 0x00;
+const uint8_t Play_Oct_0 = 0x00;   // octave
 const uint8_t Play_Oct_1 = 0x10;
 const uint8_t Play_Oct_2 = 0x20;
 const uint8_t Play_Oct_3 = 0x30;
 
 void Beep_Init(void);
-void Beep_Off(void);
 
 void Beep(uint16_t Freq, uint8_t Duty=127, uint8_t DoubleAmpl=0);
 
@@ -23,7 +22,5 @@ void Play_Morse(char Char, uint8_t Note = Play_Vol_1|Play_Oct_1, uint8_t DotLen=
 
 uint8_t Play_isBusy(void);
 
-bool Play_isEnabled(void);
-void Play_SetEnabled(bool Enabled);
-
 void Play_TimerCheck(uint8_t Ticks=1);
+
