@@ -48,12 +48,33 @@ uint32_t getUniqueAddress(void);
 
 #include "parameters.h"
 
-#if defined(WITH_WIO_TRACKER)
+#if defined(WITH_WIO_XIAO)
+#include "wio-xiao-pins.h"
+#elif defined(WITH_WIO_TRACKER)
 #include "wio-tracker-pins.h"
 #elif defined(WITH_T_ECHO)
 #include "t-echo-pins.h"
 #else
 #error "No board pin definition selected"
+#endif
+
+#if !defined(Battery_Pin) && defined(Battery_PinADC)
+#define Battery_Pin Battery_PinADC
+#endif
+
+#if !defined(Battery_Enable_Pin) && defined(Battery_PinEna)
+#define Battery_Enable_Pin Battery_PinEna
+#ifndef Battery_Enable_StateOn
+#define Battery_Enable_StateOn LOW
+#endif
+#endif
+
+#ifndef Battery_Enable_StateOn
+#define Battery_Enable_StateOn HIGH
+#endif
+
+#ifndef Button_Pin
+#define Button_Pin Pin_NotUsed
 #endif
 
 #ifndef HARD_NAME

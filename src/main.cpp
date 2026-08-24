@@ -243,11 +243,14 @@ static int OLED_DrawPage(const GPS_Position *GPS)
 
 // =======================================================================================================
 
+#if Button_Pin >= 0
 static Button2 Button(Button_Pin);
+#endif
 #if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
 static Button2 BuzzerSwitch(Trackball_PinPress);
 #endif
 
+#if Button_Pin >= 0
 static void Button_Single(Button2 Butt)
 {
 #ifdef WITH_EPAPER
@@ -263,7 +266,7 @@ static void Button_Single(Button2 Butt)
     OLED_NextPage();
   #ifdef WITH_OLED_DIM
     OLED_PageActive=millis();
-  #endif
+#endif
 #endif
 }
 
@@ -329,6 +332,7 @@ static void Button_Init(void)
   BuzzerSwitch.setLongClickDetectedHandler(BuzzerSwitch_Long);
 #endif
 }
+#endif
 
 
 
@@ -561,10 +565,12 @@ void setup()
   ADC_Init();
 #if defined(Battery_Enable_Pin)
   pinMode(Battery_Enable_Pin, OUTPUT);
-  digitalWrite(Battery_Enable_Pin, HIGH);
+  digitalWrite(Battery_Enable_Pin, Battery_Enable_StateOn);
 #endif
 
+#if Button_Pin >= 0
   Button_Init();
+#endif
   InternalFS.begin();
   HardwareStatus.SPIFFS = LogFS_begin();
   if(Parameters.ReadFromNVS()<0)               // try to get parameters from NVS
@@ -579,9 +585,11 @@ void setup()
 #ifdef WITH_BLE_SPP
   BLE_Mutex = xSemaphoreCreateMutex();
 #endif
+#if defined(I2C_PinSDA) && defined(I2C_PinSCL)
   Wire.setPins(I2C_PinSDA, I2C_PinSCL);
   Wire.begin();
   Wire.setClock(400000);
+#endif
   // I2C_Scan(Wire, "I2C bus:");
 #ifdef WITH_OLED
   OLED.setI2CAddress(0x3D<<1);
@@ -858,7 +866,9 @@ void loop()
 #ifdef WITH_BLE_SPP
   BLE_Loop();
 #endif
+#if Button_Pin >= 0
   Button.loop();
+#endif
 #if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
   BuzzerSwitch.loop();
 #endif
