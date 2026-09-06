@@ -10,6 +10,13 @@ extern U8G2_SSD1306_128X64_NONAME_F_HW_I2C OLED;
 #endif
 extern uint8_t OLED_Rotate;
 
+void OLED_ButtonSingle(void);
+void OLED_Task(void *Parms);
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+void OLED_MenuButtonClick(void);
+void OLED_MenuButtonLong(void);
+#endif
+
 void OLED_DrawLogo     (u8g2_t *OLED, const GPS_Position *GPS=0);  // draw logo and hardware options in software
 void OLED_DrawStatusBar(u8g2_t *OLED, const GPS_Position *GPS=0);  // status bar on top of the OLED
 void OLED_DrawGPS      (u8g2_t *OLED, const GPS_Position *GPS=0);  // GNSS time, position, altitude

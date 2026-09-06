@@ -22,6 +22,510 @@ U8G2_SH1106_128X64_NONAME_F_HW_I2C OLED(U8G2_R0, OLED_PinRST);
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C OLED(U8G2_R0, OLED_PinRST);
 #endif
 
+static const uint8_t OLED_Page_ID          = 0;
+static const uint8_t OLED_Page_GPS         = 1;
+static const uint8_t OLED_Page_SatSNR      = 2;
+static const uint8_t OLED_Page_Baro        = 3;
+static const uint8_t OLED_Page_RF          = 4;
+static const uint8_t OLED_Page_RFcounts    = 5;
+static const uint8_t OLED_Page_Power       = 6;
+static const uint8_t OLED_Page_RelayOGN    = 7;
+static const uint8_t OLED_Page_RelayADSL   = 8;
+static const uint8_t OLED_Pages             = 9;
+static uint8_t OLED_Page                   = 0;
+static bool OLED_PageChange                = false;
+static bool OLED_PageOFF                   = false;
+uint8_t OLED_Rotate                        = 0;
+#ifdef WITH_OLED_DIM
+static uint32_t OLED_PageActive            = 0;
+static const uint32_t OLED_PageTimeout     = (uint32_t)60000*WITH_OLED_DIM;
+#endif
+
+static TaskHandle_t OLED_TaskHandle = 0;
+static const uint32_t OLED_EventPageButton = 1u<<0;
+
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+#include "external_flash_fs.h"
+#ifdef WITH_LOG
+#include "log.h"
+#endif
+
+static const uint32_t OLED_EventMenuClick  = 1u<<1;
+static const uint32_t OLED_EventMenuLong   = 1u<<2;
+
+enum OLED_MenuState
+{ OLED_MenuClosed,
+  OLED_MenuList,
+  OLED_MenuAcftType,
+  OLED_MenuAddrType,
+  OLED_MenuAddress,
+  OLED_MenuAlert,
+  OLED_MenuGhost,
+  OLED_MenuFormatConfirm };
+
+static OLED_MenuState OLED_Menu = OLED_MenuClosed;
+static uint8_t OLED_MenuItem = 0;
+static uint8_t OLED_MenuAcftTypeValue = 0;
+static uint8_t OLED_MenuAddrTypeValue = 0;
+static uint32_t OLED_MenuAddressValue = 0;
+static uint8_t OLED_MenuAddressNibble = 0;
+static uint8_t OLED_MenuAlertValue = 0;
+static uint8_t OLED_MenuGhostValue = 0;
+static int OLED_MenuSaveResult = 0;
+static uint32_t OLED_MenuMessageTime = 0;
+static const char *OLED_MenuMessage = 0;
+
+static const uint8_t OLED_MenuItems = 6;
+
+static const char *OLED_MenuAcftTypeNames[16] =
+{ "Unknown", "Glider", "Towplane", "Helicopter",
+  "Skydiver", "Drop", "Hangglider", "Paraglider",
+  "Powered", "Jet", "Gyroplane", "Balloon",
+  "Zeppelin", "UAV", "Car", "Fixed" };
+
+static const char *OLED_MenuAddrTypeNames[4] =
+{ "RND", "ICAO", "FLARM", "OGN" };
+
+static const char *OLED_MenuAlertNames[5] =
+{ "All", "Level 1+", "Level 2+", "Level 3+", "Off" };
+
+static void OLED_SetPowerSave(bool PowerSave);
+
+static void OLED_MenuBeepOpen(void)
+{ Play(Play_Vol_1 | Play_Oct_0 | 0x05, 80); }
+
+static void OLED_MenuBeepSaved(void)
+{ Play(Play_Vol_1 | Play_Oct_0 | 0x05, 70);
+  Play(Play_Vol_1 | Play_Oct_0 | 0x08, 110); }
+
+static bool OLED_MenuActive(void)
+{ return OLED_Menu!=OLED_MenuClosed; }
+
+static void OLED_MenuRequest(uint32_t Event)
+{ if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, Event, eSetBits); }
+
+void OLED_MenuButtonClick(void)
+{ OLED_MenuRequest(OLED_EventMenuClick); }
+
+void OLED_MenuButtonLong(void)
+{ OLED_MenuRequest(OLED_EventMenuLong); }
+
+static void OLED_MenuWake(void)
+{ OLED_PageOFF=false;
+#ifdef WITH_OLED_DIM
+  OLED_PageActive=millis();
+#endif
+  OLED_SetPowerSave(false);
+  OLED_PageChange=true; }
+
+static void OLED_MenuOpen(void)
+{ OLED_Menu=OLED_MenuList;
+  OLED_MenuItem=0;
+  OLED_MenuMessageTime=0;
+  OLED_MenuMessage=0;
+  OLED_MenuBeepOpen();
+  OLED_MenuWake(); }
+
+static void OLED_MenuClose(void)
+{ OLED_Menu=OLED_MenuClosed;
+  OLED_MenuMessageTime=0;
+  OLED_MenuMessage=0;
+  OLED_MenuWake(); }
+
+static void OLED_MenuShowMessage(const char *Message, int Result)
+{ OLED_MenuMessage=Message;
+  OLED_MenuSaveResult=Result;
+  OLED_MenuMessageTime=millis(); }
+
+static void OLED_MenuSaveParameters(void)
+{ int Result=Parameters.WriteToNVS();
+  OLED_MenuShowMessage(Result<0 ? "ERROR" : "Saved", Result);
+  if(Result>=0) OLED_MenuBeepSaved(); }
+
+static void OLED_MenuEnterItem(void)
+{ switch(OLED_MenuItem)
+  { case 0:
+      OLED_MenuAcftTypeValue = Parameters.AcftType<16 ? Parameters.AcftType : 0;
+      OLED_Menu=OLED_MenuAcftType;
+      break;
+    case 1:
+      OLED_MenuAddrTypeValue = Parameters.AddrType<4 ? Parameters.AddrType : 0;
+      OLED_Menu=OLED_MenuAddrType;
+      break;
+    case 2:
+      OLED_MenuAddressValue = Parameters.Address&0x00FFFFFF;
+      OLED_MenuAddressNibble=0;
+      OLED_Menu=OLED_MenuAddress;
+      break;
+    case 3:
+      OLED_MenuAlertValue = AlarmThresh<=4 ? AlarmThresh : 4;
+      OLED_Menu=OLED_MenuAlert;
+      break;
+    case 4:
+      OLED_MenuGhostValue = Parameters.GhostMode ? 1 : 0;
+      OLED_Menu=OLED_MenuGhost;
+      break;
+    case 5:
+      OLED_Menu=OLED_MenuFormatConfirm;
+      break;
+    default: break; }
+  OLED_PageChange=true; }
+
+static void OLED_MenuChangeAcftType(int8_t Step)
+{ int Value=OLED_MenuAcftTypeValue+Step;
+  if(Value<0) Value=15;
+  if(Value>15) Value=0;
+  OLED_MenuAcftTypeValue=Value;
+  OLED_PageChange=true; }
+
+static void OLED_MenuChangeAddrType(int8_t Step)
+{ int Value=OLED_MenuAddrTypeValue+Step;
+  if(Value<0) Value=3;
+  if(Value>3) Value=0;
+  OLED_MenuAddrTypeValue=Value;
+  OLED_PageChange=true; }
+
+static void OLED_MenuChangeAddressNibble(int8_t Step)
+{ uint8_t Shift=(5-OLED_MenuAddressNibble)*4;
+  uint8_t Value=(OLED_MenuAddressValue>>Shift)&0x0F;
+  int NewValue=Value+Step;
+  if(NewValue<0) NewValue=15;
+  if(NewValue>15) NewValue=0;
+  OLED_MenuAddressValue=(OLED_MenuAddressValue&~((uint32_t)0x0F<<Shift))|
+                        ((uint32_t)NewValue<<Shift);
+  OLED_PageChange=true; }
+
+static void OLED_MenuChangeAlert(int8_t Step)
+{ int Value=OLED_MenuAlertValue+Step;
+  if(Value<0) Value=4;
+  if(Value>4) Value=0;
+  OLED_MenuAlertValue=Value;
+  OLED_PageChange=true; }
+
+static void OLED_MenuChangeGhost(int8_t Step)
+{ int Value=OLED_MenuGhostValue+Step;
+  if(Value<0) Value=1;
+  if(Value>1) Value=0;
+  OLED_MenuGhostValue=Value;
+  OLED_PageChange=true; }
+
+static void OLED_MenuCommitItem(void)
+{ switch(OLED_Menu)
+  { case OLED_MenuAcftType:
+      if(Parameters.AcftType!=OLED_MenuAcftTypeValue)
+      { Parameters.AcftType=OLED_MenuAcftTypeValue;
+        OLED_MenuSaveParameters(); }
+      break;
+    case OLED_MenuAddrType:
+      if(Parameters.AddrType!=OLED_MenuAddrTypeValue)
+      { // Keep the same address-generation rules as the text parameter parser.
+        if(Parameters.AddrType==3) Parameters.Address=getUniqueAddress();
+        else if(Parameters.AddrType==0)
+          Parameters.Address=(Parameters.calcCheckSum()*1664525+1013904223)^getUniqueAddress();
+        Parameters.AddrType=OLED_MenuAddrTypeValue;
+        OLED_MenuSaveParameters(); }
+      break;
+    case OLED_MenuAddress:
+      if(Parameters.Address!=(OLED_MenuAddressValue&0x00FFFFFF))
+      { Parameters.Address=OLED_MenuAddressValue&0x00FFFFFF;
+        OLED_MenuSaveParameters(); }
+      break;
+    case OLED_MenuAlert:
+      AlarmThresh=OLED_MenuAlertValue;
+      OLED_MenuShowMessage("Set", 0);
+      OLED_MenuBeepSaved();
+      break;
+    case OLED_MenuGhost:
+      if(Parameters.GhostMode!=OLED_MenuGhostValue)
+      { Parameters.GhostMode=OLED_MenuGhostValue;
+        OLED_MenuSaveParameters(); }
+      else
+      { OLED_MenuShowMessage("Saved", 0);
+        OLED_MenuBeepSaved(); }
+      break;
+    default: break; }
+  OLED_Menu=OLED_MenuList;
+  OLED_PageChange=true; }
+
+static void OLED_MenuFormatFlash(void)
+{
+#ifdef WITH_LOG
+  if(FlashLog_isOpen())
+  { OLED_MenuShowMessage("Log open", -1);
+    OLED_Menu=OLED_MenuList;
+    OLED_PageChange=true;
+    return; }
+#endif
+  bool Formatted=LogFS_format(Serial);
+  HardwareStatus.SPIFFS=Formatted;
+  int Result=Formatted ? Parameters.WriteToNVS() : -1;
+  if(Formatted) LogFS_listRoot(Serial);
+  OLED_MenuShowMessage(Result<0 ? "ERROR" : "Formatted", Result);
+  if(Result>=0) OLED_MenuBeepSaved();
+  OLED_Menu=OLED_MenuList;
+  OLED_PageChange=true;
+}
+
+static void OLED_MenuHandleEvent(uint32_t Event)
+{ if(Event&OLED_EventMenuLong)
+  { if(OLED_Menu==OLED_MenuClosed) OLED_MenuOpen();
+    else if(OLED_Menu==OLED_MenuFormatConfirm) OLED_MenuFormatFlash();
+    else if(OLED_Menu!=OLED_MenuList) OLED_MenuCommitItem();
+  }
+  if(Event&OLED_EventMenuClick)
+  { if(OLED_Menu==OLED_MenuList) OLED_MenuEnterItem();
+    else if(OLED_Menu!=OLED_MenuClosed)
+    { OLED_Menu=OLED_MenuList; OLED_PageChange=true; } }
+}
+
+static void OLED_MenuPollJoystick(void)
+{ static bool First=true;
+  static uint8_t Previous=0;
+  uint8_t Current=0;
+  if(digitalRead(Trackball_PinUp)==LOW)    Current|=1u<<0;
+  if(digitalRead(Trackball_PinDown)==LOW)  Current|=1u<<1;
+  if(digitalRead(Trackball_PinLeft)==LOW)  Current|=1u<<2;
+  if(digitalRead(Trackball_PinRight)==LOW) Current|=1u<<3;
+  if(First) { Previous=Current; First=false; return; }
+  uint8_t Pressed=Current&~Previous;
+  Previous=Current;
+  if(OLED_Menu==OLED_MenuList)
+  { if(Pressed&(1u<<0))
+    { if(OLED_MenuItem==0) OLED_MenuItem=OLED_MenuItems-1; else OLED_MenuItem--; OLED_PageChange=true; }
+    if(Pressed&(1u<<1))
+    { OLED_MenuItem++; if(OLED_MenuItem>=OLED_MenuItems) OLED_MenuItem=0; OLED_PageChange=true; }
+  }
+  else if(OLED_Menu==OLED_MenuAcftType)
+  { if(Pressed&(1u<<0)) OLED_MenuChangeAcftType(+1);
+    if(Pressed&(1u<<1)) OLED_MenuChangeAcftType(-1); }
+  else if(OLED_Menu==OLED_MenuAddrType)
+  { if(Pressed&(1u<<0)) OLED_MenuChangeAddrType(+1);
+    if(Pressed&(1u<<1)) OLED_MenuChangeAddrType(-1); }
+  else if(OLED_Menu==OLED_MenuAddress)
+  { if(Pressed&(1u<<0)) OLED_MenuChangeAddressNibble(+1);
+    if(Pressed&(1u<<1)) OLED_MenuChangeAddressNibble(-1);
+    if(Pressed&(1u<<2))
+    { if(OLED_MenuAddressNibble==0) OLED_MenuAddressNibble=5; else OLED_MenuAddressNibble--; OLED_PageChange=true; }
+    if(Pressed&(1u<<3))
+    { OLED_MenuAddressNibble++; if(OLED_MenuAddressNibble>=6) OLED_MenuAddressNibble=0; OLED_PageChange=true; } }
+  else if(OLED_Menu==OLED_MenuAlert)
+  { if(Pressed&(1u<<0)) OLED_MenuChangeAlert(+1);
+    if(Pressed&(1u<<1)) OLED_MenuChangeAlert(-1); }
+  else if(OLED_Menu==OLED_MenuGhost)
+  { if(Pressed&(1u<<0) || Pressed&(1u<<1)) OLED_MenuChangeGhost(+1); }
+}
+
+static void OLED_MenuDraw(u8g2_t *Display)
+{ u8g2_SetFont(Display, u8g2_font_7x13_tf);
+  if(OLED_Menu==OLED_MenuList)
+  { static const char *ItemNames[OLED_MenuItems] =
+    { "AcftType", "AddrType", "Address", "Alerts", "Ghost", "Format flash" };
+    uint8_t First=OLED_MenuItem>1 ? OLED_MenuItem-1 : 0;
+    if(First+3>OLED_MenuItems) First=OLED_MenuItems-3;
+    u8g2_DrawStr(Display, 0, 22, "OGN settings");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    for(uint8_t Row=0; Row<3; Row++)
+    { uint8_t Item=First+Row;
+      char Value[32];
+      if(Item==OLED_MenuItem) strcpy(Value, ">"); else strcpy(Value, " ");
+      strcat(Value, ItemNames[Item]);
+      if(Item==0) { strcat(Value, " "); strcat(Value, OLED_MenuAcftTypeNames[Parameters.AcftType<16 ? Parameters.AcftType : 0]); }
+      if(Item==1) { strcat(Value, " "); strcat(Value, OLED_MenuAddrTypeNames[Parameters.AddrType<4 ? Parameters.AddrType : 0]); }
+      if(Item==2) { sprintf(Value+strlen(Value), " %06X", Parameters.Address&0x00FFFFFF); }
+      if(Item==3) { strcat(Value, " "); strcat(Value, OLED_MenuAlertNames[AlarmThresh<=4 ? AlarmThresh : 4]); }
+      if(Item==4) { strcat(Value, Parameters.GhostMode ? " On" : " Off"); }
+      u8g2_DrawStr(Display, 0, 34+12*Row, Value); }
+  }
+  else if(OLED_Menu==OLED_MenuAcftType)
+  { u8g2_DrawStr(Display, 0, 25, "Aircraft type");
+    u8g2_SetFont(Display, u8g2_font_9x15_tr);
+    u8g2_DrawStr(Display, 0, 45, OLED_MenuAcftTypeNames[OLED_MenuAcftTypeValue]);
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    sprintf(Line, "%d/15 Up/Dn Long=save", OLED_MenuAcftTypeValue);
+    u8g2_DrawStr(Display, 0, 61, Line); }
+  else if(OLED_Menu==OLED_MenuAddrType)
+  { u8g2_DrawStr(Display, 0, 25, "Address type");
+    u8g2_SetFont(Display, u8g2_font_9x15_tr);
+    u8g2_DrawStr(Display, 0, 45, OLED_MenuAddrTypeNames[OLED_MenuAddrTypeValue]);
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 61, "U/D Long=OK"); }
+  else if(OLED_Menu==OLED_MenuAddress)
+  { char Address[7];
+    for(uint8_t Idx=0; Idx<6; Idx++) Address[Idx]=HexDigit((OLED_MenuAddressValue>>((5-Idx)*4))&0x0F);
+    Address[6]=0;
+    u8g2_DrawStr(Display, 0, 25, "Address");
+    u8g2_SetFont(Display, u8g2_font_9x15_tr);
+    u8g2_DrawStr(Display, 20, 45, Address);
+    u8g2_DrawHLine(Display, 20+9*OLED_MenuAddressNibble, 48, 8);
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 61, "L/R digit U/D Long OK"); }
+  else if(OLED_Menu==OLED_MenuAlert)
+  { u8g2_DrawStr(Display, 0, 25, "Alert level");
+    u8g2_SetFont(Display, u8g2_font_9x15_tr);
+    u8g2_DrawStr(Display, 0, 45, OLED_MenuAlertNames[OLED_MenuAlertValue]);
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 61, "U/D Long=OK"); }
+  else if(OLED_Menu==OLED_MenuGhost)
+  { u8g2_DrawStr(Display, 0, 25, "Ghost mode");
+    u8g2_SetFont(Display, u8g2_font_9x15_tr);
+    u8g2_DrawStr(Display, 0, 45, OLED_MenuGhostValue ? "On" : "Off");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 61, "U/D Long=OK"); }
+  else if(OLED_Menu==OLED_MenuFormatConfirm)
+  { u8g2_DrawStr(Display, 0, 25, "FORMAT EXT FLASH?");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 42, "Long=YES");
+    u8g2_DrawStr(Display, 0, 58, "Short=cancel"); }
+  if(OLED_MenuMessage && (uint32_t)(millis()-OLED_MenuMessageTime)<2500)
+  { u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 82, 22, OLED_MenuMessage); }
+}
+#endif
+
+void OLED_ButtonSingle(void)
+{ if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventPageButton, eSetBits); }
+
+static bool OLED_PageAvailable(uint8_t Page)
+{ switch(Page)
+  { case OLED_Page_ID:
+    case OLED_Page_GPS:
+    case OLED_Page_SatSNR:
+    case OLED_Page_RF:
+    case OLED_Page_RFcounts:
+    case OLED_Page_Power:
+    case OLED_Page_RelayOGN:
+    case OLED_Page_RelayADSL:
+      return true;
+    case OLED_Page_Baro:
+#if defined(WITH_BMP180) || defined(WITH_BMP280) || defined(WITH_MS5607) || defined(WITH_BME280) || defined(WITH_MS5611)
+      return true;
+#else
+      return false;
+#endif
+    default:
+      return false; } }
+
+static void OLED_NextPage(void)
+{ for(uint8_t Idx=0; Idx<OLED_Pages; Idx++)
+  { OLED_Page++;
+    if(OLED_Page>=OLED_Pages) OLED_Page=0;
+    if(OLED_PageAvailable(OLED_Page)) break; }
+  OLED_PageChange=true; }
+
+static void OLED_SetPowerSave(bool PowerSave)
+{ if(xSemaphoreTake(I2C_Mutex, 50))
+  { OLED.setPowerSave(PowerSave ? 1 : 0);
+    xSemaphoreGive(I2C_Mutex); } }
+
+static int OLED_DrawPage(const GPS_Position *GPS)
+{
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+  if(OLED_MenuActive())
+  { OLED.clearBuffer();
+    OLED_DrawStatusBar(OLED.getU8g2(), GPS);
+    OLED_MenuDraw(OLED.getU8g2());
+    if(xSemaphoreTake(I2C_Mutex, 50))
+    { OLED.sendBuffer();
+      xSemaphoreGive(I2C_Mutex); }
+    return 1; }
+#endif
+  if(OLED_PageOFF) return 1;
+  if(!OLED_PageAvailable(OLED_Page)) return 0;
+  OLED.clearBuffer();
+  switch(OLED_Page)
+  { case OLED_Page_ID:        OLED_DrawID       (OLED.getU8g2(), GPS); break;
+    case OLED_Page_GPS:       OLED_DrawGPS      (OLED.getU8g2(), GPS); break;
+    case OLED_Page_SatSNR:    OLED_DrawSatSNR   (OLED.getU8g2(), GPS); break;
+    case OLED_Page_Baro:      OLED_DrawBaro      (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RF:        OLED_DrawRF        (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RFcounts:  OLED_DrawRFcounts  (OLED.getU8g2(), GPS); break;
+    case OLED_Page_Power:     OLED_DrawPower     (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RelayOGN:  OLED_DrawRelayOGN  (OLED.getU8g2(), GPS); break;
+    case OLED_Page_RelayADSL: OLED_DrawRelayADSL (OLED.getU8g2(), GPS); break;
+    default: return 0; }
+  OLED_DrawStatusBar(OLED.getU8g2(), GPS);
+  if(xSemaphoreTake(I2C_Mutex, 50))
+  { OLED.sendBuffer();
+    xSemaphoreGive(I2C_Mutex); }
+  return 1; }
+
+static void OLED_Init(void)
+{ if(xSemaphoreTake(I2C_Mutex, 100))
+  { OLED.setI2CAddress(0x3D<<1);
+    OLED.begin();
+    xSemaphoreGive(I2C_Mutex); }
+  OLED.clearBuffer();
+  OLED_DrawLogo(OLED.getU8g2(), 0);
+  if(xSemaphoreTake(I2C_Mutex, 50))
+  { OLED.sendBuffer();
+    xSemaphoreGive(I2C_Mutex); } }
+
+static void OLED_HandleButton(void)
+{
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+  if(OLED_MenuActive())
+  { OLED_MenuClose();
+    return; }
+#endif
+  if(OLED_PageOFF)
+  { OLED_PageOFF=false;
+    OLED_SetPowerSave(false);
+    OLED_PageChange=true; }
+  else OLED_NextPage();
+#ifdef WITH_OLED_DIM
+  OLED_PageActive=millis();
+#endif
+}
+
+void OLED_Task(void *Parms)
+{
+  (void)Parms;
+  OLED_TaskHandle = xTaskGetCurrentTaskHandle();
+  OLED_Init();
+
+  GPS_Position *PrevGPS=0;
+  for( ; ; )
+  {
+    uint32_t Events=0;
+    xTaskNotifyWait(0, 0xFFFFFFFF, &Events, 0);
+    if(Events&OLED_EventPageButton) OLED_HandleButton();
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+    OLED_MenuHandleEvent(Events);
+    OLED_MenuPollJoystick();
+#endif
+
+    GPS_Position *GPS = GPS_getPosition();
+    if(GPS==0) GPS = GPS_Pos+GPS_PosIdx;
+    if(GPS!=PrevGPS)
+    {
+      OLED_PageChange=true;
+#ifdef WITH_OLED_DIM
+      uint32_t msTime = millis();
+      bool USBpowered = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk)!=0;
+      bool GPSlocked = GPS && GPS->isValid();
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+      if(OLED_MenuActive())
+      { OLED_PageOFF=false;
+        OLED_PageActive=msTime; }
+      else
+#endif
+      { if(USBpowered || !GPSlocked) OLED_PageActive = msTime;
+        uint32_t Age = msTime-OLED_PageActive;
+        OLED_PageOFF = Age>OLED_PageTimeout; }
+#else
+      OLED_PageOFF = false;
+#endif
+      OLED_SetPowerSave(OLED_PageOFF);
+      PrevGPS=GPS;
+    }
+
+    if(OLED_PageChange)
+    { OLED_PageChange=false;
+      if(OLED_DrawPage(GPS)==0) OLED_NextPage(); }
+    vTaskDelay(50);
+  }
+}
+
 void OLED_DrawLogo(u8g2_t *OLED, const GPS_Position *GPS)  // draw logo and hardware options in software
 { u8g2_DrawCircle(OLED, 96, 32, 30, U8G2_DRAW_ALL);
   u8g2_DrawCircle(OLED, 96, 32, 34, U8G2_DRAW_UPPER_RIGHT);

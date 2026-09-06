@@ -170,84 +170,13 @@ int  BLE_UART_Free(void) { return BLE_SPP_TxFIFO.Free(); }
 
 // =======================================================================================================
 
-#ifdef WITH_OLED
-
-static const uint8_t OLED_Page_ID          = 0;
-static const uint8_t OLED_Page_GPS         = 1;
-static const uint8_t OLED_Page_SatSNR      = 2;
-static const uint8_t OLED_Page_Baro        = 3;
-static const uint8_t OLED_Page_RF          = 4;
-static const uint8_t OLED_Page_RFcounts    = 5;
-static const uint8_t OLED_Page_Power       = 6;
-static const uint8_t OLED_Page_RelayOGN    = 7;
-static const uint8_t OLED_Page_RelayADSL   = 8;
-const  uint8_t  OLED_Pages      = 9;       // number of OLED pages
-static uint8_t  OLED_Page       = 0;       // page currently on display
-static uint8_t  OLED_PageChange = 0;       // signal the page has been changed
-static uint8_t  OLED_PageOFF    = 0;       // Backlight to be OFF
-uint8_t         OLED_Rotate     = 0;       // rotate OLED by 180 degrees
-#ifdef WITH_OLED_DIM
-static uint32_t OLED_PageActive = 0;       // [ms] last time the page was active (button pressed)
-const  uint32_t OLED_PageTimeout = (uint32_t)60000*WITH_OLED_DIM;  // [ms] timeout to turn off the TFT backlight
-#endif
-
-static bool OLED_PageAvailable(uint8_t Page)
-{ switch(Page)
-  { case OLED_Page_ID:
-    case OLED_Page_GPS:
-    case OLED_Page_SatSNR:
-    case OLED_Page_RF:
-    case OLED_Page_RFcounts:
-    case OLED_Page_Power:
-    case OLED_Page_RelayOGN:
-    case OLED_Page_RelayADSL:
-      return true;
-    case OLED_Page_Baro:
-#if defined(WITH_BMP180) || defined(WITH_BMP280) || defined(WITH_MS5607) || defined(WITH_BME280) || defined(WITH_MS5611)
-      return true;
-#else
-      return false;
-#endif
-    default:
-      return false; } }
-
-static void OLED_NextPage(void)
-{ for(uint8_t Idx=0; Idx<OLED_Pages; Idx++)
-  { OLED_Page++;
-    if(OLED_Page>=OLED_Pages) OLED_Page=0;
-    if(OLED_PageAvailable(OLED_Page)) break; }
-  OLED_PageChange=1; }
-
-static int OLED_DrawPage(const GPS_Position *GPS)
-{ if(OLED_PageOFF) return 1;
-  if(!OLED_PageAvailable(OLED_Page)) return 0;
-  OLED.clearBuffer();
-  switch(OLED_Page)
-  { case OLED_Page_ID:        OLED_DrawID       (OLED.getU8g2(), GPS); break;
-    case OLED_Page_GPS:       OLED_DrawGPS      (OLED.getU8g2(), GPS); break;
-    case OLED_Page_SatSNR:    OLED_DrawSatSNR   (OLED.getU8g2(), GPS); break;
-    case OLED_Page_Baro:      OLED_DrawBaro     (OLED.getU8g2(), GPS); break;
-    case OLED_Page_RF:        OLED_DrawRF       (OLED.getU8g2(), GPS); break;
-    case OLED_Page_RFcounts:  OLED_DrawRFcounts (OLED.getU8g2(), GPS); break;
-    case OLED_Page_Power:     OLED_DrawPower    (OLED.getU8g2(), GPS); break;
-    case OLED_Page_RelayOGN:  OLED_DrawRelayOGN (OLED.getU8g2(), GPS); break;
-    case OLED_Page_RelayADSL: OLED_DrawRelayADSL(OLED.getU8g2(), GPS); break;
-    default: return 0; }
-  OLED_DrawStatusBar(OLED.getU8g2(), GPS);
-  if(xSemaphoreTake(I2C_Mutex, 50))
-  { OLED.sendBuffer();
-    xSemaphoreGive(I2C_Mutex); }
-  return 1; }
-
-#endif
-
 // =======================================================================================================
 
 #if Button_Pin >= 0
 static Button2 Button(Button_Pin);
 #endif
-#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
-static Button2 BuzzerSwitch(Trackball_PinPress);
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+static Button2 OLED_MenuButton(Trackball_PinPress);
 #endif
 
 #if Button_Pin >= 0
@@ -260,13 +189,7 @@ static void Button_Single(Button2 Butt)
     return; }
 #endif
 #ifdef WITH_OLED
-  if(OLED_PageOFF)
-    OLED_PageOFF=0;
-  else
-    OLED_NextPage();
-  #ifdef WITH_OLED_DIM
-    OLED_PageActive=millis();
-#endif
+  OLED_ButtonSingle();
 #endif
 }
 
@@ -303,21 +226,12 @@ static void Button_Long(Button2 Butt)
   while(1) __WFI();             // never returns
 }
 
-#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
-static void BuzzerSwitch_Long(Button2 Butt)
-{ if(AlarmThresh==0)
-  { // Descending confirmation before muting.
-    Play(Play_Vol_1 | Play_Oct_1 | 4, 100);
-    Play(Play_Vol_0 | Play_Oct_1 | 4,  50);
-    Play(Play_Vol_1 | Play_Oct_1 | 3, 150);
-    AlarmThresh=4; }
-  else
-  { // Ascending confirmation after enabling.
-    Play(Play_Vol_1 | Play_Oct_1 | 3, 100);
-    Play(Play_Vol_0 | Play_Oct_1 | 3,  50);
-    Play(Play_Vol_1 | Play_Oct_1 | 4, 150);
-    AlarmThresh=0; }
-}
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+static void OLED_MenuButton_Click(Button2 Butt)
+{ (void)Butt; OLED_MenuButtonClick(); }
+
+static void OLED_MenuButton_Long(Button2 Butt)
+{ (void)Butt; OLED_MenuButtonLong(); }
 #endif
 
 static void Button_Init(void)
@@ -326,10 +240,14 @@ static void Button_Init(void)
   Button.setClickHandler(Button_Single);
   Button.setDoubleClickHandler(Button_Double);
   Button.setLongClickDetectedHandler(Button_Long);
-#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
-  pinMode(Trackball_PinPress, INPUT_PULLUP);
-  BuzzerSwitch.setLongClickTime(2000);
-  BuzzerSwitch.setLongClickDetectedHandler(BuzzerSwitch_Long);
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+  pinMode(Trackball_PinUp, INPUT_PULLUP);
+  pinMode(Trackball_PinDown, INPUT_PULLUP);
+  pinMode(Trackball_PinLeft, INPUT_PULLUP);
+  pinMode(Trackball_PinRight, INPUT_PULLUP);
+  OLED_MenuButton.setClickHandler(OLED_MenuButton_Click);
+  OLED_MenuButton.setLongClickTime(2000);
+  OLED_MenuButton.setLongClickDetectedHandler(OLED_MenuButton_Long);
 #endif
 }
 #endif
@@ -591,15 +509,6 @@ void setup()
   Wire.setClock(400000);
 #endif
   // I2C_Scan(Wire, "I2C bus:");
-#ifdef WITH_OLED
-  OLED.setI2CAddress(0x3D<<1);
-  OLED.begin();
-  // OLED.setDisplayRotation(OLED_Rotate ? U8G2_R2 : U8G2_R0);
-  OLED.clearBuffer();
-  OLED_DrawLogo(OLED.getU8g2(), 0);
-  OLED.sendBuffer();
-#endif
-
   Serial.begin(115200);
   Serial.println();
   // delay(1000);
@@ -656,6 +565,9 @@ void setup()
 #endif
 #ifdef WITH_EPAPER
   xTaskCreate(EPD_Task    ,  "EPD"  ,  3000, NULL, 0, NULL);  // update e-paper display
+#endif
+#ifdef WITH_OLED
+  xTaskCreate(OLED_Task   ,  "OLED" ,  2000, NULL, 0, NULL);  // update OLED display
 #endif
 
 }
@@ -869,35 +781,8 @@ void loop()
 #if Button_Pin >= 0
   Button.loop();
 #endif
-#if defined(WITH_WIO_TRACKER) && defined(WITH_BEEPER)
-  BuzzerSwitch.loop();
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+  OLED_MenuButton.loop();
 #endif
   while(ProcessInput()>0);         // handle console input
-  static GPS_Position *PrevGPS=0;
-  GPS_Position *GPS = GPS_getPosition();
-  if(GPS==0) { GPS = GPS_Pos+GPS_PosIdx; }
-#ifdef WITH_OLED
-  if(OLED_PageChange)
-  { OLED_PageChange=0;
-    if(OLED_DrawPage(GPS)==0) OLED_NextPage(); }
-#endif
-  if(GPS!=PrevGPS)
-  {
-#ifdef WITH_OLED
-    OLED_PageChange=1;
-#ifdef WITH_OLED_DIM
-    uint32_t msTime = millis();
-    bool USBpowered = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk)!=0;
-    bool GPSlocked = GPS && GPS->isValid();
-    if(USBpowered || !GPSlocked) OLED_PageActive = msTime;
-    uint32_t Age = msTime-OLED_PageActive;
-    OLED_PageOFF = Age>OLED_PageTimeout;
-#else
-    OLED_PageOFF = 0;
-#endif
-    if(OLED_PageOFF) OLED.setPowerSave(1);
-               else  OLED.setPowerSave(0);
-#endif
-    PrevGPS=GPS; }
-
 }
