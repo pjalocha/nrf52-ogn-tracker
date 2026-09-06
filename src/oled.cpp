@@ -61,7 +61,13 @@ enum OLED_MenuState
   OLED_MenuAddress,
   OLED_MenuAlert,
   OLED_MenuGhost,
+  OLED_MenuTextEdit,
   OLED_MenuFormatConfirm };
+
+enum OLED_MenuTextField
+{ OLED_MenuTextNone,
+  OLED_MenuTextReg,
+  OLED_MenuTextPilot };
 
 static OLED_MenuState OLED_Menu = OLED_MenuClosed;
 static uint8_t OLED_MenuItem = 0;
@@ -71,11 +77,15 @@ static uint32_t OLED_MenuAddressValue = 0;
 static uint8_t OLED_MenuAddressNibble = 0;
 static uint8_t OLED_MenuAlertValue = 0;
 static uint8_t OLED_MenuGhostValue = 0;
+static OLED_MenuTextField OLED_MenuText = OLED_MenuTextNone;
+static char OLED_MenuTextValue[FlashParameters::InfoParmLen];
+static uint8_t OLED_MenuTextPosition = 0;
 static int OLED_MenuSaveResult = 0;
 static uint32_t OLED_MenuMessageTime = 0;
 static const char *OLED_MenuMessage = 0;
 
-static const uint8_t OLED_MenuItems = 6;
+static const uint8_t OLED_MenuItems = 8;
+static const uint8_t OLED_MenuTextLength = FlashParameters::InfoParmLen-1;
 
 static const char *OLED_MenuAcftTypeNames[16] =
 { "Unknown", "Glider", "Towplane", "Helicopter",
@@ -88,6 +98,9 @@ static const char *OLED_MenuAddrTypeNames[4] =
 
 static const char *OLED_MenuAlertNames[5] =
 { "All", "Level 1+", "Level 2+", "Level 3+", "Off" };
+
+static const char OLED_MenuTextCharacters[] =
+  " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-+_/@#:";
 
 static void OLED_SetPowerSave(bool PowerSave);
 
@@ -142,6 +155,8 @@ static void OLED_MenuSaveParameters(void)
   OLED_MenuShowMessage(Result<0 ? "ERROR" : "Saved", Result);
   if(Result>=0) OLED_MenuBeepSaved(); }
 
+static void OLED_MenuEnterText(OLED_MenuTextField Field);
+
 static void OLED_MenuEnterItem(void)
 { switch(OLED_MenuItem)
   { case 0:
@@ -166,9 +181,33 @@ static void OLED_MenuEnterItem(void)
       OLED_Menu=OLED_MenuGhost;
       break;
     case 5:
+      OLED_MenuEnterText(OLED_MenuTextReg);
+      break;
+    case 6:
+      OLED_MenuEnterText(OLED_MenuTextPilot);
+      break;
+    case 7:
       OLED_Menu=OLED_MenuFormatConfirm;
       break;
     default: break; }
+  OLED_PageChange=true; }
+
+static char *OLED_MenuTextTarget(void)
+{ if(OLED_MenuText==OLED_MenuTextReg) return Parameters.Reg;
+  if(OLED_MenuText==OLED_MenuTextPilot) return Parameters.Pilot;
+  return 0; }
+
+static const char *OLED_MenuTextTitle(void)
+{ return OLED_MenuText==OLED_MenuTextReg ? "Registration" : "Pilot name"; }
+
+static void OLED_MenuEnterText(OLED_MenuTextField Field)
+{ OLED_MenuText=Field;
+  char *Target=OLED_MenuTextTarget();
+  for(uint8_t Idx=0; Idx<OLED_MenuTextLength; Idx++)
+    OLED_MenuTextValue[Idx] = (Target && Target[Idx]) ? Target[Idx] : ' ';
+  OLED_MenuTextValue[OLED_MenuTextLength]=0;
+  OLED_MenuTextPosition=0;
+  OLED_Menu=OLED_MenuTextEdit;
   OLED_PageChange=true; }
 
 static void OLED_MenuChangeAcftType(int8_t Step)
@@ -209,6 +248,18 @@ static void OLED_MenuChangeGhost(int8_t Step)
   OLED_MenuGhostValue=Value;
   OLED_PageChange=true; }
 
+static void OLED_MenuChangeText(int8_t Step)
+{ const char *Characters=OLED_MenuTextCharacters;
+  uint8_t CharacterCount=strlen(Characters);
+  uint8_t Character=0;
+  while(Character<CharacterCount && Characters[Character]!=OLED_MenuTextValue[OLED_MenuTextPosition]) Character++;
+  if(Character>=CharacterCount) Character=0;
+  int NewCharacter=Character+Step;
+  if(NewCharacter<0) NewCharacter=CharacterCount-1;
+  if(NewCharacter>=CharacterCount) NewCharacter=0;
+  OLED_MenuTextValue[OLED_MenuTextPosition]=Characters[NewCharacter];
+  OLED_PageChange=true; }
+
 static void OLED_MenuCommitItem(void)
 { switch(OLED_Menu)
   { case OLED_MenuAcftType:
@@ -242,6 +293,20 @@ static void OLED_MenuCommitItem(void)
       else
       { OLED_MenuShowMessage("Saved", 0);
         OLED_MenuBeepSaved(); }
+      break;
+    case OLED_MenuTextEdit:
+      { char Value[FlashParameters::InfoParmLen];
+        memcpy(Value, OLED_MenuTextValue, OLED_MenuTextLength);
+        Value[OLED_MenuTextLength]=0;
+        for(int Idx=OLED_MenuTextLength-1; Idx>=0 && Value[Idx]==' '; Idx--)
+          Value[Idx]=0;
+        char *Target=OLED_MenuTextTarget();
+        if(Target && strcmp(Target, Value)!=0)
+        { strcpy(Target, Value);
+          OLED_MenuSaveParameters(); }
+        else
+        { OLED_MenuShowMessage("Saved", 0);
+          OLED_MenuBeepSaved(); } }
       break;
     default: break; }
   OLED_Menu=OLED_MenuList;
@@ -281,6 +346,9 @@ static void OLED_MenuHandleEvent(uint32_t Event)
 static void OLED_MenuPollJoystick(void)
 { static bool First=true;
   static uint8_t Previous=0;
+  static uint8_t TextRepeatKey=0;
+  static uint32_t TextRepeatStart=0;
+  static uint32_t TextRepeatNext=0;
   uint8_t Current=0;
   if(digitalRead(Trackball_PinUp)==LOW)    Current|=1u<<0;
   if(digitalRead(Trackball_PinDown)==LOW)  Current|=1u<<1;
@@ -313,13 +381,38 @@ static void OLED_MenuPollJoystick(void)
     if(Pressed&(1u<<1)) OLED_MenuChangeAlert(-1); }
   else if(OLED_Menu==OLED_MenuGhost)
   { if(Pressed&(1u<<0) || Pressed&(1u<<1)) OLED_MenuChangeGhost(+1); }
+  else if(OLED_Menu==OLED_MenuTextEdit)
+  { uint8_t Direction=0;
+    if((Current&(1u<<0)) && !(Current&(1u<<1))) Direction=1;
+    if((Current&(1u<<1)) && !(Current&(1u<<0))) Direction=2;
+    uint8_t PressedDirection=Pressed&((1u<<0)|(1u<<1));
+    uint32_t Now=millis();
+    if(PressedDirection && Direction)
+    { OLED_MenuChangeText(Direction==1 ? +1 : -1);
+      TextRepeatKey=Direction;
+      TextRepeatStart=Now;
+      TextRepeatNext=Now+350; }
+    else if(Direction && Direction==TextRepeatKey && (int32_t)(Now-TextRepeatNext)>=0)
+    { OLED_MenuChangeText(Direction==1 ? +1 : -1);
+      uint32_t Held=Now-TextRepeatStart;
+      uint32_t Interval=Held>1500 ? 50 : (Held>800 ? 90 : 140);
+      TextRepeatNext=Now+Interval; }
+    else if(Direction==0) TextRepeatKey=0;
+    if(Pressed&(1u<<2))
+    { if(OLED_MenuTextPosition==0) OLED_MenuTextPosition=OLED_MenuTextLength-1;
+      else OLED_MenuTextPosition--; OLED_PageChange=true; }
+    if(Pressed&(1u<<3))
+    { OLED_MenuTextPosition++;
+      if(OLED_MenuTextPosition>=OLED_MenuTextLength) OLED_MenuTextPosition=0;
+      OLED_PageChange=true; } }
+  else TextRepeatKey=0;
 }
 
 static void OLED_MenuDraw(u8g2_t *Display)
 { u8g2_SetFont(Display, u8g2_font_7x13_tf);
   if(OLED_Menu==OLED_MenuList)
   { static const char *ItemNames[OLED_MenuItems] =
-    { "AcftType", "AddrType", "Address", "Alerts", "Ghost", "Format flash" };
+    { "AcftType", "AddrType", "Address", "Alerts", "Ghost", "Reg", "Pilot", "Format flash" };
     uint8_t First=OLED_MenuItem>1 ? OLED_MenuItem-1 : 0;
     if(First+3>OLED_MenuItems) First=OLED_MenuItems-3;
     u8g2_DrawStr(Display, 0, 22, "OGN settings");
@@ -334,6 +427,8 @@ static void OLED_MenuDraw(u8g2_t *Display)
       if(Item==2) { sprintf(Value+strlen(Value), " %06X", Parameters.Address&0x00FFFFFF); }
       if(Item==3) { strcat(Value, " "); strcat(Value, OLED_MenuAlertNames[AlarmThresh<=4 ? AlarmThresh : 4]); }
       if(Item==4) { strcat(Value, Parameters.GhostMode ? " On" : " Off"); }
+      if(Item==5) { strcat(Value, " "); strcat(Value, Parameters.Reg); }
+      if(Item==6) { strcat(Value, " "); strcat(Value, Parameters.Pilot); }
       u8g2_DrawStr(Display, 0, 34+12*Row, Value); }
   }
   else if(OLED_Menu==OLED_MenuAcftType)
@@ -371,6 +466,12 @@ static void OLED_MenuDraw(u8g2_t *Display)
     u8g2_DrawStr(Display, 0, 45, OLED_MenuGhostValue ? "On" : "Off");
     u8g2_SetFont(Display, u8g2_font_6x12_tr);
     u8g2_DrawStr(Display, 0, 61, "U/D Long=OK"); }
+  else if(OLED_Menu==OLED_MenuTextEdit)
+  { u8g2_DrawStr(Display, 0, 25, OLED_MenuTextTitle());
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 45, OLED_MenuTextValue);
+    u8g2_DrawHLine(Display, 6*OLED_MenuTextPosition, 48, 6);
+    u8g2_DrawStr(Display, 0, 61, "L/R char U/D Long OK"); }
   else if(OLED_Menu==OLED_MenuFormatConfirm)
   { u8g2_DrawStr(Display, 0, 25, "FORMAT EXT FLASH?");
     u8g2_SetFont(Display, u8g2_font_6x12_tr);

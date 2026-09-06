@@ -21,7 +21,7 @@ const uint8_t KNOB_Tick = 15;
 #include "play.h"
 
 #ifndef VERSION
-#define VERSION "0.1.28"
+#define VERSION "0.1.29"
 #endif
 
 #ifndef SOFT_NAME
