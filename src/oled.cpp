@@ -62,7 +62,8 @@ enum OLED_MenuState
   OLED_MenuAlert,
   OLED_MenuGhost,
   OLED_MenuTextEdit,
-  OLED_MenuFormatConfirm };
+  OLED_MenuFormatConfirm,
+  OLED_MenuDefaultsConfirm };
 
 enum OLED_MenuTextField
 { OLED_MenuTextNone,
@@ -84,7 +85,7 @@ static int OLED_MenuSaveResult = 0;
 static uint32_t OLED_MenuMessageTime = 0;
 static const char *OLED_MenuMessage = 0;
 
-static const uint8_t OLED_MenuItems = 8;
+static const uint8_t OLED_MenuItems = 9;
 static const uint8_t OLED_MenuTextLength = FlashParameters::InfoParmLen-1;
 
 static const char *OLED_MenuAcftTypeNames[16] =
@@ -98,6 +99,9 @@ static const char *OLED_MenuAddrTypeNames[4] =
 
 static const char *OLED_MenuAlertNames[5] =
 { "All", "Level 1+", "Level 2+", "Level 3+", "Off" };
+
+static const char *OLED_MenuGhostNames[3] =
+{ "Off", "Traffic", "Altitude" };
 
 static const char OLED_MenuTextCharacters[] =
   " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-+_/@#:";
@@ -177,7 +181,7 @@ static void OLED_MenuEnterItem(void)
       OLED_Menu=OLED_MenuAlert;
       break;
     case 4:
-      OLED_MenuGhostValue = Parameters.GhostMode ? 1 : 0;
+      OLED_MenuGhostValue = Parameters.GhostMode>=2 ? 2 : Parameters.GhostMode;
       OLED_Menu=OLED_MenuGhost;
       break;
     case 5:
@@ -188,6 +192,9 @@ static void OLED_MenuEnterItem(void)
       break;
     case 7:
       OLED_Menu=OLED_MenuFormatConfirm;
+      break;
+    case 8:
+      OLED_Menu=OLED_MenuDefaultsConfirm;
       break;
     default: break; }
   OLED_PageChange=true; }
@@ -243,8 +250,8 @@ static void OLED_MenuChangeAlert(int8_t Step)
 
 static void OLED_MenuChangeGhost(int8_t Step)
 { int Value=OLED_MenuGhostValue+Step;
-  if(Value<0) Value=1;
-  if(Value>1) Value=0;
+  if(Value<0) Value=2;
+  if(Value>2) Value=0;
   OLED_MenuGhostValue=Value;
   OLED_PageChange=true; }
 
@@ -331,10 +338,21 @@ static void OLED_MenuFormatFlash(void)
   OLED_PageChange=true;
 }
 
+static void OLED_MenuResetDefaults(void)
+{ Parameters.setDefault();
+  AlarmThresh=0;
+  int Result=Parameters.WriteToNVS();
+  OLED_MenuShowMessage(Result<0 ? "ERROR" : "Defaults", Result);
+  if(Result>=0) OLED_MenuBeepSaved();
+  OLED_Menu=OLED_MenuList;
+  OLED_PageChange=true;
+}
+
 static void OLED_MenuHandleEvent(uint32_t Event)
 { if(Event&OLED_EventMenuLong)
   { if(OLED_Menu==OLED_MenuClosed) OLED_MenuOpen();
     else if(OLED_Menu==OLED_MenuFormatConfirm) OLED_MenuFormatFlash();
+    else if(OLED_Menu==OLED_MenuDefaultsConfirm) OLED_MenuResetDefaults();
     else if(OLED_Menu!=OLED_MenuList) OLED_MenuCommitItem();
   }
   if(Event&OLED_EventMenuClick)
@@ -411,8 +429,8 @@ static void OLED_MenuPollJoystick(void)
 static void OLED_MenuDraw(u8g2_t *Display)
 { u8g2_SetFont(Display, u8g2_font_7x13_tf);
   if(OLED_Menu==OLED_MenuList)
-  { static const char *ItemNames[OLED_MenuItems] =
-    { "AcftType", "AddrType", "Address", "Alerts", "Ghost", "Reg", "Pilot", "Format flash" };
+    { static const char *ItemNames[OLED_MenuItems] =
+    { "AcftType", "AddrType", "Address", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults" };
     uint8_t First=OLED_MenuItem>1 ? OLED_MenuItem-1 : 0;
     if(First+3>OLED_MenuItems) First=OLED_MenuItems-3;
     u8g2_DrawStr(Display, 0, 22, "OGN settings");
@@ -426,7 +444,7 @@ static void OLED_MenuDraw(u8g2_t *Display)
       if(Item==1) { strcat(Value, " "); strcat(Value, OLED_MenuAddrTypeNames[Parameters.AddrType<4 ? Parameters.AddrType : 0]); }
       if(Item==2) { sprintf(Value+strlen(Value), " %06X", Parameters.Address&0x00FFFFFF); }
       if(Item==3) { strcat(Value, " "); strcat(Value, OLED_MenuAlertNames[AlarmThresh<=4 ? AlarmThresh : 4]); }
-      if(Item==4) { strcat(Value, Parameters.GhostMode ? " On" : " Off"); }
+      if(Item==4) { strcat(Value, " "); strcat(Value, OLED_MenuGhostNames[Parameters.GhostMode>=2 ? 2 : Parameters.GhostMode]); }
       if(Item==5) { strcat(Value, " "); strcat(Value, Parameters.Reg); }
       if(Item==6) { strcat(Value, " "); strcat(Value, Parameters.Pilot); }
       u8g2_DrawStr(Display, 0, 34+12*Row, Value); }
@@ -463,7 +481,7 @@ static void OLED_MenuDraw(u8g2_t *Display)
   else if(OLED_Menu==OLED_MenuGhost)
   { u8g2_DrawStr(Display, 0, 25, "Ghost mode");
     u8g2_SetFont(Display, u8g2_font_9x15_tr);
-    u8g2_DrawStr(Display, 0, 45, OLED_MenuGhostValue ? "On" : "Off");
+    u8g2_DrawStr(Display, 0, 45, OLED_MenuGhostNames[OLED_MenuGhostValue]);
     u8g2_SetFont(Display, u8g2_font_6x12_tr);
     u8g2_DrawStr(Display, 0, 61, "U/D Long=OK"); }
   else if(OLED_Menu==OLED_MenuTextEdit)
@@ -474,6 +492,11 @@ static void OLED_MenuDraw(u8g2_t *Display)
     u8g2_DrawStr(Display, 0, 61, "L/R char U/D Long OK"); }
   else if(OLED_Menu==OLED_MenuFormatConfirm)
   { u8g2_DrawStr(Display, 0, 25, "FORMAT EXT FLASH?");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 42, "Long=YES");
+    u8g2_DrawStr(Display, 0, 58, "Short=cancel"); }
+  else if(OLED_Menu==OLED_MenuDefaultsConfirm)
+  { u8g2_DrawStr(Display, 0, 25, "RESET DEFAULTS?");
     u8g2_SetFont(Display, u8g2_font_6x12_tr);
     u8g2_DrawStr(Display, 0, 42, "Long=YES");
     u8g2_DrawStr(Display, 0, 58, "Short=cancel"); }
