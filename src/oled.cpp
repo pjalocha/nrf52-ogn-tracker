@@ -31,7 +31,12 @@ static const uint8_t OLED_Page_RFcounts    = 5;
 static const uint8_t OLED_Page_Power       = 6;
 static const uint8_t OLED_Page_RelayOGN    = 7;
 static const uint8_t OLED_Page_RelayADSL   = 8;
+#ifdef WITH_LOOKOUT
+static const uint8_t OLED_Page_LookOut     = 9;
+static const uint8_t OLED_Pages             = 10;
+#else
 static const uint8_t OLED_Pages             = 9;
+#endif
 static uint8_t OLED_Page                   = 0;
 static bool OLED_PageChange                = false;
 static bool OLED_PageOFF                   = false;
@@ -619,6 +624,9 @@ static bool OLED_PageAvailable(uint8_t Page)
     case OLED_Page_Power:
     case OLED_Page_RelayOGN:
     case OLED_Page_RelayADSL:
+#ifdef WITH_LOOKOUT
+    case OLED_Page_LookOut:
+#endif
       return true;
     case OLED_Page_Baro:
 #if defined(WITH_BMP180) || defined(WITH_BMP280) || defined(WITH_MS5607) || defined(WITH_BME280) || defined(WITH_MS5611)
@@ -666,6 +674,9 @@ static int OLED_DrawPage(const GPS_Position *GPS)
     case OLED_Page_Power:     OLED_DrawPower     (OLED.getU8g2(), GPS); break;
     case OLED_Page_RelayOGN:  OLED_DrawRelayOGN  (OLED.getU8g2(), GPS); break;
     case OLED_Page_RelayADSL: OLED_DrawRelayADSL (OLED.getU8g2(), GPS); break;
+#ifdef WITH_LOOKOUT
+    case OLED_Page_LookOut:   OLED_DrawLookOut   (OLED.getU8g2(), GPS); break;
+#endif
     default: return 0; }
   OLED_DrawStatusBar(OLED.getU8g2(), GPS);
   if(xSemaphoreTake(I2C_Mutex, 50))
@@ -1065,6 +1076,7 @@ void OLED_DrawRelayOGN(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[32];
   u8g2_SetFont(OLED, u8g2_font_6x12_tr);         // small font
   uint8_t LineIdx=1;
+  bool Displayed=false;
   for( uint8_t Idx=0; Idx<RelayQueueSize; Idx++)
   { OGN_RxPacket<OGN_Packet> *Packet = OGN_RelayQueue.Packet+Idx; if(Packet->Alloc==0) continue;
     if(Packet->Packet.Header.NonPos) continue;
@@ -1082,14 +1094,17 @@ void OLED_DrawRelayOGN(u8g2_t *OLED, const GPS_Position *GPS)
     Len+=Format_String(Line+Len, "km");
     Line[Len]=0;
     u8g2_DrawStr(OLED, 0, (LineIdx+3)*8, Line);
+    Displayed=true;
     LineIdx++; if(LineIdx>=8) break;
   }
+  if(!Displayed) u8g2_DrawStr(OLED, 0, 32, "No OGN relays");
 }
 
 void OLED_DrawRelayADSL(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[32];
   u8g2_SetFont(OLED, u8g2_font_6x12_tr);         // small font
   uint8_t LineIdx=1;
+  bool Displayed=false;
   for( uint8_t Idx=0; Idx<RelayQueueSize; Idx++)
   { ADSL_RxPacket *Packet = ADSL_RelayQueue.Packet+Idx; if(Packet->Alloc==0) continue;
     if(!Packet->Packet.isPosition()) continue;
@@ -1107,8 +1122,10 @@ void OLED_DrawRelayADSL(u8g2_t *OLED, const GPS_Position *GPS)
     Len+=Format_String(Line+Len, "km");
     Line[Len]=0;
     u8g2_DrawStr(OLED, 0, (LineIdx+3)*8, Line);
+    Displayed=true;
     LineIdx++; if(LineIdx>=8) break;
   }
+  if(!Displayed) u8g2_DrawStr(OLED, 0, 32, "No ADS-L relays");
 }
 
 void OLED_DrawPower(u8g2_t *OLED, const GPS_Position *GPS)
@@ -1149,6 +1166,40 @@ void OLED_DrawPower(u8g2_t *OLED, const GPS_Position *GPS)
 
 
 }
+
+#ifdef WITH_LOOKOUT
+void OLED_DrawLookOut(u8g2_t *OLED, const GPS_Position *GPS)
+{ char Line[32];
+  const char *AlertName;
+  switch(Parameters.AlertThresh)
+  { case 0: AlertName="All";  break;
+    case 1: AlertName="L1+";  break;
+    case 2: AlertName="L2+";  break;
+    case 3: AlertName="L3+";  break;
+    case 4: AlertName="Off";  break;
+    default: AlertName="?"; }
+
+  u8g2_SetFont(OLED, u8g2_font_6x12_tr);
+  u8g2_DrawStr(OLED, 0, 23, "LOOKOUT");
+  sprintf(Line, "Alert %s  Warn %ds", AlertName, Look.WarnTime);
+  u8g2_DrawStr(OLED, 0, 35, Line);
+
+  uint8_t TgtIdx=Look.WorstTgtIdx;
+  if(Look.WarnLevel && TgtIdx<LookOut<32>::MaxTargets)
+  { const LookOut_Target *Tgt=Look.Target+TgtIdx;
+    if(Tgt->Alloc && Tgt->WarnLevel)
+    { if(Tgt->Call[0]) sprintf(Line, "Threat L%d %.10s", Tgt->WarnLevel, Tgt->Call);
+      else              sprintf(Line, "Threat L%d %06X", Tgt->WarnLevel, Tgt->Address&0x00FFFFFF);
+      u8g2_DrawStr(OLED, 0, 47, Line);
+      sprintf(Line, "CPA %ds %dm %+dm", Tgt->MissTime/2, Tgt->MissDist/2, Tgt->dZ/2);
+      u8g2_DrawStr(OLED, 0, 59, Line);
+      return; }
+  }
+
+  sprintf(Line, "No threat  Targets %d", Look.Targets);
+  u8g2_DrawStr(OLED, 0, 47, Line);
+  u8g2_DrawStr(OLED, 0, 59, "CPA --s ---m"); }
+#endif
 
 static int16_t OLED_ClipInt16(int32_t Value)
 { if(Value> 32767) return  32767;
