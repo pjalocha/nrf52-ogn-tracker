@@ -40,13 +40,6 @@ static GDL90_REPORT    GDL_REPORT;
 #include "mesht-proto.h"
 #endif
 
-#if defined(WITH_THINKNODE_M5) || defined(WITH_EPAPER)
-uint8_t AlarmThresh = 4;              // 0: all alarms, 1: only 1 or higher, 2: only 2 or higher, 3: only three or higher, 4: all blocked
-#elif defined(WITH_WIO_TRACKER)
-uint8_t AlarmThresh = 0;
-#else
-const uint8_t AlarmThresh = 0;
-#endif
 uint8_t AlarmLevel = 0;               // current alarm level, from Lookout, 0=no alarm
 uint8_t GhostSilent = 0;              // if the Ghost-mode is silent
 
@@ -67,6 +60,10 @@ static bool GhostAltitudeActive(uint32_t Time)
 #ifdef WITH_LOOKOUT                   // traffic awareness and warnings
 #include "lookout.h"
 LookOut<32> Look;
+
+static int16_t GetLookOutWarnTime(void)
+{ return 20+10*(Parameters.LookOutWarnTime&0x03); } // [sec]
+
 #ifdef WITH_SOUND
 const char *Dir[16] = { "N", "NNE", "NE", "NEE", "E", "SEE", "SE", "SSE", "S", "SSW", "SW", "SWW", "W", "NWW", "NW", "NNW" };
 const char *RelDir[8] = { "A", "AR", "R", "BR", "B", "BL", "L", "AL" };
@@ -626,11 +623,11 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
         xSemaphoreGive(CONS_Mutex); } }
 #endif
 #ifdef WITH_BEEPER
-    // if(AlarmThresh==0) Play(Play_Vol_1 | Play_Oct_2 | (7+2*Warn), 3+16*Warn);
+    // if(Parameters.AlertThresh==0) Play(Play_Vol_1 | Play_Oct_2 | (7+2*Warn), 3+16*Warn);
 #endif
 #else // if not WITH_LOOKOUT
 #ifdef WITH_BEEPER
-    // if(AlarmThresh==0) Play(Play_Vol_1 | Play_Oct_2 | 7, 3);                         // if Knob>12 => make a beep for every received packet
+    // if(Parameters.AlertThresh==0) Play(Play_Vol_1 | Play_Oct_2 | 7, 3);                         // if Knob>12 => make a beep for every received packet
 #endif
 #endif // WITH_LOOKOUT
 
@@ -766,11 +763,11 @@ static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t
       xSemaphoreGive(CONS_Mutex); }
 #endif
 #ifdef WITH_BEEPER
-    // if(AlarmThresh==0) Play(Play_Vol_1 | Play_Oct_2 | (7+2*Warn), 3+16*Warn);
+    // if(Parameters.AlertThresh==0) Play(Play_Vol_1 | Play_Oct_2 | (7+2*Warn), 3+16*Warn);
 #endif
 #else // if not WITH_LOOKOUT
 #ifdef WITH_BEEPER
-    // if(AlarmThresh==0) Play(Play_Vol_1 | Play_Oct_2 | 7, 3);                            // if Knob>12 => make a beep for every received packet
+    // if(Parameters.AlertThresh==0) Play(Play_Vol_1 | Play_Oct_2 | 7, 3);                            // if Knob>12 => make a beep for every received packet
 #endif
 #endif // WITH_LOOKOUT
 
@@ -1038,6 +1035,7 @@ void vTaskPROC(void* pvParameters)
   ADSL_RelayQueue.Clear();
 
 #ifdef WITH_LOOKOUT
+  Look.WarnTime=GetLookOutWarnTime();
   Look.Clear();
 #endif
 
@@ -1268,6 +1266,7 @@ void vTaskPROC(void* pvParameters)
 #endif
 
 #ifdef WITH_LOOKOUT
+      Look.WarnTime=GetLookOutWarnTime();
       Look.GeoidSepar = Position->GeoidSeparation/10;                 // [m]
       // process own position, get the most dangerous target
       const LookOut_Target *Tgt=Look.ProcessOwn(PosPacket.Packet, PosTime);
@@ -1319,7 +1318,7 @@ void vTaskPROC(void* pvParameters)
         const uint8_t Warn3Tone = Play_Oct_2 | 4; // 2637Hz
         static uint8_t NearBackOff=0;
         if(Warn==0)
-        { if(AlarmThresh<=1)
+        { if(Parameters.AlertThresh<=1)
           { uint8_t NearAcft=Look.countNearAcft();
             if(NearAcft)
             { if(NearBackOff) NearBackOff--;
@@ -1329,16 +1328,16 @@ void vTaskPROC(void* pvParameters)
           }
         }
         else if(Warn<=1)
-        { if(AlarmThresh<=1)
+        { if(Parameters.AlertThresh<=1)
           { Play(Play_Vol_1 | Warn1Tone, 200); }
         }
         else if(Warn<=2)
-        { if(AlarmThresh<=2)
+        { if(Parameters.AlertThresh<=2)
           { Play(Play_Vol_3 | Warn2Tone, 150); Play(Warn2Tone, 150);
             Play(Play_Vol_3 | Warn2Tone, 150); }
         }
         else if(Warn<=3)
-        { if(AlarmThresh<=3)
+        { if(Parameters.AlertThresh<=3)
           { Play(Play_Vol_3 | Warn3Tone, 100); Play(Warn3Tone, 100);
             Play(Play_Vol_3 | Warn3Tone, 100); Play(Warn3Tone, 100);
             Play(Play_Vol_3 | Warn3Tone, 100); }

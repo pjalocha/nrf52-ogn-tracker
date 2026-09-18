@@ -11,6 +11,9 @@ extern U8G2_SSD1306_128X64_NONAME_F_HW_I2C OLED;
 extern uint8_t OLED_Rotate;
 
 void OLED_ButtonSingle(void);
+#if defined(WITH_WIO_TRACKER)
+void OLED_ButtonLong(void);
+#endif
 void OLED_Task(void *Parms);
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
 void OLED_MenuButtonClick(void);

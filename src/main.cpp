@@ -202,7 +202,12 @@ static void Button_Double(Button2 Butt)
 }
 
 static void Button_Long(Button2 Butt)
-{ PowerMode=0;
+{
+#if defined(WITH_WIO_TRACKER)
+  (void)Butt;
+  OLED_ButtonLong();
+#else
+  PowerMode=0;
 // #ifdef WITH_BEEPER
 //   Beep_Off();
 // #endif
@@ -224,6 +229,7 @@ static void Button_Long(Button2 Butt)
   delay(100);
   systemOff(Button_Pin, LOW);   // wake on the active-low button
   while(1) __WFI();             // never returns
+#endif
 }
 
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)

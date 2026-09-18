@@ -209,7 +209,8 @@ template <const uint8_t MaxTgts=32>
    const static int32_t   DistRange = 10000; // [m] drop immediately anything beyond this distance
    const static int16_t MinHorizSepar = 100; // [m] minimum horizontal separation
    const static int16_t MinVertSepar  =  50; // [m] minimum vertical separation
-   const static int16_t WarnTime      =  20; // [sec] target warning prior to closest miss
+   // const static int16_t WarnTime      =  20; // [sec] target warning prior to closest miss
+
    const static int16_t MaxPastPacketTime   = 20; // [sec] accept/reject threshold for delayed packets
    const static int16_t MaxFuturePacketTime = 20; // [sec] reject own packets too far ahead of RxTime
 
@@ -218,9 +219,13 @@ template <const uint8_t MaxTgts=32>
    LookOut_Target *Sort[MaxTargets];      // for sorting, vector of pointers
    uint8_t SortSize;
 
+   int16_t WarnTime;                      // [sec] target warning time; compare with half-second values using 2*WarnTime
+
    char Line[120];                        // for printing
 
   public:
+
+   LookOut() { WarnTime=20; Clear(); }     // put default value;
 
    void Clear(void)
    { Flags=0; ID=0; Pos.Clear(); Pred=0;
@@ -672,8 +677,11 @@ template <const uint8_t MaxTgts=32>
 #ifdef DEBUG_PRINT
      printf("MissTime = %+4.1f, MissDist = %4.1f\n", 0.5*Tgt->MissTime, 0.5*Tgt->MissDist);
 #endif
-     if( (Tgt->MissTime<0) || (Tgt->MissTime>(2*WarnTime)) || (Tgt->MissDist>MinMissDist) ) Tgt->WarnLevel=0;
-     else if(Tgt->MissDist<(2*MinHorizSepar)) { Tgt->WarnLevel=2; if(Tgt->MissTime<(2*WarnTime/3)) Tgt->WarnLevel=3; }
+     if( (Tgt->MissTime<0) || (Tgt->MissTime>(2*WarnTime)) || (Tgt->MissDist>MinMissDist) )
+     { Tgt->WarnLevel=0; }                           // reduce warning level to none
+     else if(Tgt->MissDist<(2*MinHorizSepar))
+     { Tgt->WarnLevel=2;
+       if(Tgt->MissTime<WarnTime) Tgt->WarnLevel=3; }
 #ifdef DEBUG_PRINT
      printf("calcTarget(%08X) V=[%+5.1f, %+5.1f, %+5.1f]m/s D=[%+7.1f, %+7.1f, %+7.1f]m MissTime=%5.1fsec MissDist=%6.1fm\n",
               Tgt->ID, 0.5*Tgt->Vx, 0.5*Tgt->Vy, 0.5*Tgt->Vz, 0.5*Tgt->dX, 0.5*Tgt->dY, 0.5*Tgt->dZ, 0.5*Tgt->MissTime, 0.5*Tgt->MissDist);

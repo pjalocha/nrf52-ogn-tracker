@@ -158,7 +158,7 @@ static bool UpdateSatMon(void)
 
 // ========================================================================================================================
 
-static uint8_t PrevAlarmThresh = 0;
+static uint8_t PrevAlertThresh = 0;
 static const int16_t AlarmX = 124;
 static const int16_t AlarmY = 0;
 static const int16_t AlarmW = 34;
@@ -184,20 +184,20 @@ static void DrawBellFrame(int16_t X, int16_t Y, int16_t W, uint8_t Color=GxEPD_B
 
 static void DrawAlarmThresh(void)
 { DrawBellFrame(AlarmX, AlarmY, AlarmW);
-  if(AlarmThresh>=4)
+  if(Parameters.AlertThresh>=4)
   { EPD.drawLine(AlarmX-6, 15, AlarmX+6, 27, GxEPD_BLACK);
     EPD.drawLine(AlarmX-5, 15, AlarmX+7, 27, GxEPD_BLACK);
     EPD.drawLine(AlarmX+6, 15, AlarmX-6, 27, GxEPD_BLACK);
     EPD.drawLine(AlarmX+5, 15, AlarmX-7, 27, GxEPD_BLACK); }
-  else if(AlarmThresh>0)
+  else if(Parameters.AlertThresh>0)
   { EPD.setTextColor(GxEPD_BLACK);
     EPD.setFont(&FreeMonoBold9pt7b);
-    EPD.drawChar(AlarmX-5, 25, '0'+AlarmThresh, GxEPD_BLACK, GxEPD_WHITE, 1); }
-  PrevAlarmThresh=AlarmThresh; }
+    EPD.drawChar(AlarmX-5, 25, '0'+Parameters.AlertThresh, GxEPD_BLACK, GxEPD_WHITE, 1); }
+  PrevAlertThresh=Parameters.AlertThresh; }
 
 static bool UpdateAlarmThresh(void)
-{ if(PrevAlarmThresh==AlarmThresh) return 0;
-  // PrevAlarmThresh=AlarmThresh;
+{ if(PrevAlertThresh==Parameters.AlertThresh) return 0;
+  // PrevAlertThresh=Parameters.AlertThresh;
   EPD.setPartialWindow(AlarmX-17, AlarmY, 35, 39);               // partial update
   EPD.fillRect(AlarmX-17, AlarmY, 35, 39, GxEPD_WHITE);          // clear the area to be redrawn
   EPD.firstPage();

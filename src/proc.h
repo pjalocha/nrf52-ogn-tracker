@@ -1,9 +1,5 @@
 #pragma once
 
-#if defined(WITH_THINKNODE_M5) || defined(WITH_EPAPER) || defined(WITH_WIO_TRACKER)
-extern uint8_t AlarmThresh;
-#endif
-
 #ifdef WITH_LOOKOUT                   // traffic awareness and warnings
 #include "lookout.h"
 extern LookOut<32> Look;

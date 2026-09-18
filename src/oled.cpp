@@ -43,6 +43,10 @@ static const uint32_t OLED_PageTimeout     = (uint32_t)60000*WITH_OLED_DIM;
 
 static TaskHandle_t OLED_TaskHandle = 0;
 static const uint32_t OLED_EventPageButton = 1u<<0;
+#if defined(WITH_WIO_TRACKER)
+static const uint32_t OLED_EventPageLong   = 1u<<1;
+static bool OLED_KeypadLocked              = false;
+#endif
 
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
 #include "external_flash_fs.h"
@@ -50,8 +54,8 @@ static const uint32_t OLED_EventPageButton = 1u<<0;
 #include "log.h"
 #endif
 
-static const uint32_t OLED_EventMenuClick  = 1u<<1;
-static const uint32_t OLED_EventMenuLong   = 1u<<2;
+static const uint32_t OLED_EventMenuClick  = 1u<<2;
+static const uint32_t OLED_EventMenuLong   = 1u<<3;
 
 enum OLED_MenuState
 { OLED_MenuClosed,
@@ -59,6 +63,8 @@ enum OLED_MenuState
   OLED_MenuAcftType,
   OLED_MenuAddrType,
   OLED_MenuAddress,
+  OLED_MenuTxPower,
+  OLED_MenuLookOutWarnTime,
   OLED_MenuAlert,
   OLED_MenuGhost,
   OLED_MenuTextEdit,
@@ -76,6 +82,8 @@ static uint8_t OLED_MenuAcftTypeValue = 0;
 static uint8_t OLED_MenuAddrTypeValue = 0;
 static uint32_t OLED_MenuAddressValue = 0;
 static uint8_t OLED_MenuAddressNibble = 0;
+static uint8_t OLED_MenuTxPowerValue = 0;
+static uint8_t OLED_MenuLookOutWarnTimeValue = 0;
 static uint8_t OLED_MenuAlertValue = 0;
 static uint8_t OLED_MenuGhostValue = 0;
 static OLED_MenuTextField OLED_MenuText = OLED_MenuTextNone;
@@ -85,8 +93,9 @@ static int OLED_MenuSaveResult = 0;
 static uint32_t OLED_MenuMessageTime = 0;
 static const char *OLED_MenuMessage = 0;
 
-static const uint8_t OLED_MenuItems = 9;
+static const uint8_t OLED_MenuItems = 11;
 static const uint8_t OLED_MenuTextLength = FlashParameters::InfoParmLen-1;
+static const uint8_t OLED_MenuLookOutWarnTimes[4] = { 20, 30, 40, 50 };
 
 static const char *OLED_MenuAcftTypeNames[16] =
 { "Unknown", "Glider", "Towplane", "Helicopter",
@@ -177,23 +186,34 @@ static void OLED_MenuEnterItem(void)
       OLED_Menu=OLED_MenuAddress;
       break;
     case 3:
-      OLED_MenuAlertValue = AlarmThresh<=4 ? AlarmThresh : 4;
-      OLED_Menu=OLED_MenuAlert;
+      { int Value=Parameters.TxPower;
+        if(Value<0) Value=0;
+        if(Value>22) Value=22;
+        OLED_MenuTxPowerValue=Value; }
+      OLED_Menu=OLED_MenuTxPower;
       break;
     case 4:
+      OLED_MenuLookOutWarnTimeValue = Parameters.LookOutWarnTime<4 ? Parameters.LookOutWarnTime : 0;
+      OLED_Menu=OLED_MenuLookOutWarnTime;
+      break;
+    case 5:
+      OLED_MenuAlertValue = Parameters.AlertThresh<=4 ? Parameters.AlertThresh : 4;
+      OLED_Menu=OLED_MenuAlert;
+      break;
+    case 6:
       OLED_MenuGhostValue = Parameters.GhostMode>=2 ? 2 : Parameters.GhostMode;
       OLED_Menu=OLED_MenuGhost;
       break;
-    case 5:
+    case 7:
       OLED_MenuEnterText(OLED_MenuTextReg);
       break;
-    case 6:
+    case 8:
       OLED_MenuEnterText(OLED_MenuTextPilot);
       break;
-    case 7:
+    case 9:
       OLED_Menu=OLED_MenuFormatConfirm;
       break;
-    case 8:
+    case 10:
       OLED_Menu=OLED_MenuDefaultsConfirm;
       break;
     default: break; }
@@ -219,15 +239,15 @@ static void OLED_MenuEnterText(OLED_MenuTextField Field)
 
 static void OLED_MenuChangeAcftType(int8_t Step)
 { int Value=OLED_MenuAcftTypeValue+Step;
-  if(Value<0) Value=15;
-  if(Value>15) Value=0;
+  if(Value<0) Value=0;
+  if(Value>15) Value=15;
   OLED_MenuAcftTypeValue=Value;
   OLED_PageChange=true; }
 
 static void OLED_MenuChangeAddrType(int8_t Step)
 { int Value=OLED_MenuAddrTypeValue+Step;
-  if(Value<0) Value=3;
-  if(Value>3) Value=0;
+  if(Value<0) Value=0;
+  if(Value>3) Value=3;
   OLED_MenuAddrTypeValue=Value;
   OLED_PageChange=true; }
 
@@ -241,17 +261,31 @@ static void OLED_MenuChangeAddressNibble(int8_t Step)
                         ((uint32_t)NewValue<<Shift);
   OLED_PageChange=true; }
 
+static void OLED_MenuChangeTxPower(int8_t Step)
+{ int Value=OLED_MenuTxPowerValue+Step;
+  if(Value<0) Value=0;
+  if(Value>22) Value=22;
+  OLED_MenuTxPowerValue=Value;
+  OLED_PageChange=true; }
+
+static void OLED_MenuChangeLookOutWarnTime(int8_t Step)
+{ int Value=OLED_MenuLookOutWarnTimeValue+Step;
+  if(Value<0) Value=0;
+  if(Value>3) Value=3;
+  OLED_MenuLookOutWarnTimeValue=Value;
+  OLED_PageChange=true; }
+
 static void OLED_MenuChangeAlert(int8_t Step)
 { int Value=OLED_MenuAlertValue+Step;
-  if(Value<0) Value=4;
-  if(Value>4) Value=0;
+  if(Value<0) Value=0;
+  if(Value>4) Value=4;
   OLED_MenuAlertValue=Value;
   OLED_PageChange=true; }
 
 static void OLED_MenuChangeGhost(int8_t Step)
 { int Value=OLED_MenuGhostValue+Step;
-  if(Value<0) Value=2;
-  if(Value>2) Value=0;
+  if(Value<0) Value=0;
+  if(Value>2) Value=2;
   OLED_MenuGhostValue=Value;
   OLED_PageChange=true; }
 
@@ -288,10 +322,20 @@ static void OLED_MenuCommitItem(void)
       { Parameters.Address=OLED_MenuAddressValue&0x00FFFFFF;
         OLED_MenuSaveParameters(); }
       break;
+    case OLED_MenuTxPower:
+      if(Parameters.TxPower!=OLED_MenuTxPowerValue)
+      { Parameters.TxPower=OLED_MenuTxPowerValue;
+        OLED_MenuSaveParameters(); }
+      break;
+    case OLED_MenuLookOutWarnTime:
+      if(Parameters.LookOutWarnTime!=OLED_MenuLookOutWarnTimeValue)
+      { Parameters.LookOutWarnTime=OLED_MenuLookOutWarnTimeValue;
+        OLED_MenuSaveParameters(); }
+      break;
     case OLED_MenuAlert:
-      AlarmThresh=OLED_MenuAlertValue;
-      OLED_MenuShowMessage("Set", 0);
-      OLED_MenuBeepSaved();
+      if(Parameters.AlertThresh!=OLED_MenuAlertValue)
+      { Parameters.AlertThresh=OLED_MenuAlertValue;
+        OLED_MenuSaveParameters(); }
       break;
     case OLED_MenuGhost:
       if(Parameters.GhostMode!=OLED_MenuGhostValue)
@@ -340,7 +384,6 @@ static void OLED_MenuFormatFlash(void)
 
 static void OLED_MenuResetDefaults(void)
 { Parameters.setDefault();
-  AlarmThresh=0;
   int Result=Parameters.WriteToNVS();
   OLED_MenuShowMessage(Result<0 ? "ERROR" : "Defaults", Result);
   if(Result>=0) OLED_MenuBeepSaved();
@@ -375,6 +418,11 @@ static void OLED_MenuPollJoystick(void)
   if(First) { Previous=Current; First=false; return; }
   uint8_t Pressed=Current&~Previous;
   Previous=Current;
+#if defined(WITH_WIO_TRACKER)
+  if(OLED_KeypadLocked)
+  { TextRepeatKey=0;
+    return; }
+#endif
   if(OLED_Menu==OLED_MenuList)
   { if(Pressed&(1u<<0))
     { if(OLED_MenuItem==0) OLED_MenuItem=OLED_MenuItems-1; else OLED_MenuItem--; OLED_PageChange=true; }
@@ -394,6 +442,11 @@ static void OLED_MenuPollJoystick(void)
     { if(OLED_MenuAddressNibble==0) OLED_MenuAddressNibble=5; else OLED_MenuAddressNibble--; OLED_PageChange=true; }
     if(Pressed&(1u<<3))
     { OLED_MenuAddressNibble++; if(OLED_MenuAddressNibble>=6) OLED_MenuAddressNibble=0; OLED_PageChange=true; } }
+  else if(OLED_Menu==OLED_MenuTxPower)
+  { if(Pressed&(1u<<0) || Pressed&(1u<<1)) OLED_MenuChangeTxPower(Pressed&(1u<<0) ? +1 : -1); }
+  else if(OLED_Menu==OLED_MenuLookOutWarnTime)
+  { if(Pressed&(1u<<0)) OLED_MenuChangeLookOutWarnTime(+1);
+    if(Pressed&(1u<<1)) OLED_MenuChangeLookOutWarnTime(-1); }
   else if(OLED_Menu==OLED_MenuAlert)
   { if(Pressed&(1u<<0)) OLED_MenuChangeAlert(+1);
     if(Pressed&(1u<<1)) OLED_MenuChangeAlert(-1); }
@@ -429,8 +482,8 @@ static void OLED_MenuPollJoystick(void)
 static void OLED_MenuDraw(u8g2_t *Display)
 { u8g2_SetFont(Display, u8g2_font_7x13_tf);
   if(OLED_Menu==OLED_MenuList)
-    { static const char *ItemNames[OLED_MenuItems] =
-    { "AcftType", "AddrType", "Address", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults" };
+  { static const char *ItemNames[OLED_MenuItems] =
+    { "AcftType", "AddrType", "Address", "Tx power", "Warn time", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults" };
     uint8_t First=OLED_MenuItem>1 ? OLED_MenuItem-1 : 0;
     if(First+3>OLED_MenuItems) First=OLED_MenuItems-3;
     u8g2_DrawStr(Display, 0, 22, "OGN settings");
@@ -443,10 +496,12 @@ static void OLED_MenuDraw(u8g2_t *Display)
       if(Item==0) { strcat(Value, " "); strcat(Value, OLED_MenuAcftTypeNames[Parameters.AcftType<16 ? Parameters.AcftType : 0]); }
       if(Item==1) { strcat(Value, " "); strcat(Value, OLED_MenuAddrTypeNames[Parameters.AddrType<4 ? Parameters.AddrType : 0]); }
       if(Item==2) { sprintf(Value+strlen(Value), " %06X", Parameters.Address&0x00FFFFFF); }
-      if(Item==3) { strcat(Value, " "); strcat(Value, OLED_MenuAlertNames[AlarmThresh<=4 ? AlarmThresh : 4]); }
-      if(Item==4) { strcat(Value, " "); strcat(Value, OLED_MenuGhostNames[Parameters.GhostMode>=2 ? 2 : Parameters.GhostMode]); }
-      if(Item==5) { strcat(Value, " "); strcat(Value, Parameters.Reg); }
-      if(Item==6) { strcat(Value, " "); strcat(Value, Parameters.Pilot); }
+      if(Item==3) { int TxPower=Parameters.TxPower; if(TxPower<0) TxPower=0; if(TxPower>22) TxPower=22; sprintf(Value+strlen(Value), " %ddBm", TxPower); }
+      if(Item==4) { sprintf(Value+strlen(Value), " %ds", OLED_MenuLookOutWarnTimes[Parameters.LookOutWarnTime<4 ? Parameters.LookOutWarnTime : 0]); }
+      if(Item==5) { strcat(Value, " "); strcat(Value, OLED_MenuAlertNames[Parameters.AlertThresh<=4 ? Parameters.AlertThresh : 4]); }
+      if(Item==6) { strcat(Value, " "); strcat(Value, OLED_MenuGhostNames[Parameters.GhostMode>=2 ? 2 : Parameters.GhostMode]); }
+      if(Item==7) { strcat(Value, " "); strcat(Value, Parameters.Reg); }
+      if(Item==8) { strcat(Value, " "); strcat(Value, Parameters.Pilot); }
       u8g2_DrawStr(Display, 0, 34+12*Row, Value); }
   }
   else if(OLED_Menu==OLED_MenuAcftType)
@@ -472,6 +527,20 @@ static void OLED_MenuDraw(u8g2_t *Display)
     u8g2_DrawHLine(Display, 20+9*OLED_MenuAddressNibble, 48, 8);
     u8g2_SetFont(Display, u8g2_font_6x12_tr);
     u8g2_DrawStr(Display, 0, 61, "L/R digit U/D Long OK"); }
+  else if(OLED_Menu==OLED_MenuTxPower)
+  { u8g2_DrawStr(Display, 0, 25, "Tx power");
+    u8g2_SetFont(Display, u8g2_font_9x15_tr);
+    sprintf(Line, "%d dBm", OLED_MenuTxPowerValue);
+    u8g2_DrawStr(Display, 0, 45, Line);
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 61, "U/D Long=OK"); }
+  else if(OLED_Menu==OLED_MenuLookOutWarnTime)
+  { u8g2_DrawStr(Display, 0, 25, "Warning time");
+    u8g2_SetFont(Display, u8g2_font_9x15_tr);
+    sprintf(Line, "%d sec", OLED_MenuLookOutWarnTimes[OLED_MenuLookOutWarnTimeValue]);
+    u8g2_DrawStr(Display, 0, 45, Line);
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 61, "U/D Long=OK"); }
   else if(OLED_Menu==OLED_MenuAlert)
   { u8g2_DrawStr(Display, 0, 25, "Alert level");
     u8g2_SetFont(Display, u8g2_font_9x15_tr);
@@ -508,6 +577,11 @@ static void OLED_MenuDraw(u8g2_t *Display)
 
 void OLED_ButtonSingle(void)
 { if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventPageButton, eSetBits); }
+
+#if defined(WITH_WIO_TRACKER)
+void OLED_ButtonLong(void)
+{ if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventPageLong, eSetBits); }
+#endif
 
 static bool OLED_PageAvailable(uint8_t Page)
 { switch(Page)
@@ -601,6 +675,21 @@ static void OLED_HandleButton(void)
 #endif
 }
 
+#if defined(WITH_WIO_TRACKER)
+static void OLED_HandleKeypadLock(void)
+{ OLED_KeypadLocked = !OLED_KeypadLocked;
+#if defined(WITH_OLED_MENU)
+  if(OLED_KeypadLocked && OLED_MenuActive()) OLED_MenuClose();
+#endif
+  if(OLED_KeypadLocked)
+  { Play(Play_Vol_1 | Play_Oct_0 | 0x03, 100); }
+  else
+  { Play(Play_Vol_1 | Play_Oct_0 | 0x08, 100);
+    Play(Play_Vol_1 | Play_Oct_0 | 0x05, 70); }
+  OLED_PageChange=true;
+}
+#endif
+
 void OLED_Task(void *Parms)
 {
   (void)Parms;
@@ -612,9 +701,16 @@ void OLED_Task(void *Parms)
   {
     uint32_t Events=0;
     xTaskNotifyWait(0, 0xFFFFFFFF, &Events, 0);
-    if(Events&OLED_EventPageButton) OLED_HandleButton();
+#if defined(WITH_WIO_TRACKER)
+    if(Events&OLED_EventPageLong) OLED_HandleKeypadLock();
+    if(!OLED_KeypadLocked)
+#endif
+    { if(Events&OLED_EventPageButton) OLED_HandleButton();
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
     OLED_MenuHandleEvent(Events);
+#endif
+    }
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
     OLED_MenuPollJoystick();
 #endif
 
@@ -706,6 +802,12 @@ void OLED_DrawStatusBar(u8g2_t *OLED, const GPS_Position *GPS)   // status bar o
   if(BLE_isConnected())
   { u8g2_SetFont(OLED, u8g2_font_open_iconic_all_1x_t);
     u8g2_DrawGlyph(OLED, 36, 11, 0x5E); } // 0x4A
+#endif
+
+#if defined(WITH_WIO_TRACKER)
+  if(OLED_KeypadLocked)
+  { u8g2_SetFont(OLED, u8g2_font_open_iconic_all_1x_t);
+    u8g2_DrawGlyph(OLED, 42, 11, 0xC1); } // Open Iconic: key
 #endif
 
 /*

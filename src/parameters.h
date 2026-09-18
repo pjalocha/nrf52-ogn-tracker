@@ -53,11 +53,12 @@ class __attribute__((packed, aligned(4))) FlashParameters
      { int16_t RFchipFreqCorr: 12; // [0.1ppm] frequency correction for crystal frequency offset
        int8_t  RFchipTempCorr:  4; // [degC] correction to the temperature measured in the RF chip
        int8_t         TxPower:  6; // [dBm] highest bit set => HW module (up to +20dBm Tx power)
-       bool      RFchipTypeHW:  1; // is this RFM69HW (Tx power up to +20dBm) ?
+       bool      RFchipTypeHW:  1; // is this RFM69HW (Tx power up to +20dBm) - not used anymore
       uint8_t        FreqPlan:  3; // 0=default or force given frequency hopping plan
        bool         RelayMode:  1; // Static relay-mode: rarely transmit own position, priority to relays or other aircrafts
       uint8_t       GhostMode:  2; // don't transmit your position unless you hear others nearby
-       // 3 bits spare
+       bool      GhostModeRnd:  1; // use random-ID while with the GhostMode
+       uint8_t LookOutWarnTime: 2; // 0=20s, 1=30s, 2=40s, 3=50s warning time
      } ;
    } ;
 
@@ -74,8 +75,8 @@ class __attribute__((packed, aligned(4))) FlashParameters
    } ;
 
    union
-   { uint16_t Flags;
-     struct __attribute__((packed, aligned(2)))
+   { uint32_t Flags;
+     struct __attribute__((packed, aligned(4)))
      { bool SaveToFlash:1;   // Save parameters from the config file to Flash
        bool PowerON    :1;   // stay ON or OFF - to prevent accidential turn-ON
        bool WiFiON     :1;   // start WiFi (if not then start BT)
@@ -85,10 +86,12 @@ class __attribute__((packed, aligned(4))) FlashParameters
        uint8_t  Verbose:2;   //
        uint8_t  NavRate:3;   // [Hz] GPS position report rate
         int8_t TimeCorr:3;   // [sec] it appears for ArduPilot you need to correct time by 3 seconds which is likely the leap-second issue
+       int16_t PressCorr:13; // [0.25Pa] pressure correction for the baro
+       uint8_t AlertThresh:3; //
      } ;
    } ;                       //
 
-   int16_t  PressCorr;       // [0.25Pa] pressure correction for the baro
+   // int16_t  PressCorr;       // [0.25Pa] pressure correction for the baro
 
    int16_t  GeoidSepar;      // [0.1m] Geoid-Separation, apparently ArduPilot MAVlink does not give this value (although present in the format)
                              //  or it could be a problem of some GPSes
@@ -296,6 +299,7 @@ uint16_t StratuxPort;
   void setDefault(uint32_t UniqueAddr)
   { AcftID = ((uint32_t)DEFAULT_AcftType<<26) | 0x03000000 | (UniqueAddr&0x00FFFFFF);
     RFchip         =         0;
+    LookOutWarnTime=         0; // default warning time: 20s
     // RFchipFreqCorr =         0; // [0.1ppm]
 #ifdef WITH_RFM69W
     TxPower        =        13; // [dBm] for RFM69W
@@ -308,6 +312,7 @@ uint16_t StratuxPort;
     RxProtMask     =    0xFFFF;
 
     Flags          =         0;
+    // AlertThresh    =         4; // 0: all alarms, 1: level 1 or higher, 2: level 2 or higher, 3: level 3 or higher, 4: all blocked
 #ifdef WITH_GPS_UBX
     NavMode        =         6; // 6 = Avionic mode 1g for UBX
 #endif
@@ -327,7 +332,7 @@ uint16_t StratuxPort;
     RFchipTempCorr =         0; // [degC]
     CONbaud        =    DEFAULT_CONbaud; // [bps]
     CONprot        =      0xFF;
-    PressCorr      =         0; // [0.25Pa]
+    // PressCorr      =         0; // [0.25Pa]
     TimeCorr       =         0; // [sec]
 
     PowerON        =         1;
