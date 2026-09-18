@@ -96,6 +96,11 @@ static const char *OLED_MenuMessage = 0;
 static const uint8_t OLED_MenuItems = 11;
 static const uint8_t OLED_MenuTextLength = FlashParameters::InfoParmLen-1;
 static const uint8_t OLED_MenuLookOutWarnTimes[4] = { 20, 30, 40, 50 };
+static const uint8_t OLED_MenuGestureCenter  = 1u<<4;
+static const uint8_t OLED_MenuGestureBlocked = 1u<<7;
+static uint8_t OLED_MenuGestureOwner = 0;
+static bool OLED_MenuCenterGesturePending = false;
+static bool OLED_MenuCenterGesturePrincipal = false;
 
 static const char *OLED_MenuAcftTypeNames[16] =
 { "Unknown", "Glider", "Towplane", "Helicopter",
@@ -392,7 +397,15 @@ static void OLED_MenuResetDefaults(void)
 }
 
 static void OLED_MenuHandleEvent(uint32_t Event)
-{ if(Event&OLED_EventMenuLong)
+{ if(Event&(OLED_EventMenuClick|OLED_EventMenuLong))
+  { if(!OLED_MenuCenterGesturePending && OLED_MenuGestureOwner!=0) return;
+    if(OLED_MenuCenterGesturePending)
+    { bool Allowed=OLED_MenuCenterGesturePrincipal &&
+                   (OLED_MenuGestureOwner==0 || OLED_MenuGestureOwner==OLED_MenuGestureCenter);
+      OLED_MenuCenterGesturePending=false;
+      if(!Allowed) return; }
+  }
+  if(Event&OLED_EventMenuLong)
   { if(OLED_Menu==OLED_MenuClosed) OLED_MenuOpen();
     else if(OLED_Menu==OLED_MenuFormatConfirm) OLED_MenuFormatFlash();
     else if(OLED_Menu==OLED_MenuDefaultsConfirm) OLED_MenuResetDefaults();
@@ -415,14 +428,27 @@ static void OLED_MenuPollJoystick(void)
   if(digitalRead(Trackball_PinDown)==LOW)  Current|=1u<<1;
   if(digitalRead(Trackball_PinLeft)==LOW)  Current|=1u<<2;
   if(digitalRead(Trackball_PinRight)==LOW) Current|=1u<<3;
+  if(digitalRead(Trackball_PinPress)==LOW) Current|=OLED_MenuGestureCenter;
+  if(OLED_MenuGestureOwner==0 && Current)
+  { if((Current&(Current-1))==0) OLED_MenuGestureOwner=Current;
+    else OLED_MenuGestureOwner=OLED_MenuGestureBlocked; }
+  if(Current==0) OLED_MenuGestureOwner=0;
   if(First) { Previous=Current; First=false; return; }
   uint8_t Pressed=Current&~Previous;
   Previous=Current;
+  if(Pressed&OLED_MenuGestureCenter)
+  { OLED_MenuCenterGesturePending=true;
+    OLED_MenuCenterGesturePrincipal=OLED_MenuGestureOwner==OLED_MenuGestureCenter; }
 #if defined(WITH_WIO_TRACKER)
   if(OLED_KeypadLocked)
   { TextRepeatKey=0;
+    OLED_MenuCenterGesturePending=false;
     return; }
 #endif
+  if(OLED_MenuGestureOwner==OLED_MenuGestureBlocked ||
+     OLED_MenuGestureOwner==OLED_MenuGestureCenter)
+    Pressed=0;
+  else Pressed&=OLED_MenuGestureOwner;
   if(OLED_Menu==OLED_MenuList)
   { if(Pressed&(1u<<0))
     { if(OLED_MenuItem==0) OLED_MenuItem=OLED_MenuItems-1; else OLED_MenuItem--; OLED_PageChange=true; }
@@ -454,8 +480,8 @@ static void OLED_MenuPollJoystick(void)
   { if(Pressed&(1u<<0) || Pressed&(1u<<1)) OLED_MenuChangeGhost(+1); }
   else if(OLED_Menu==OLED_MenuTextEdit)
   { uint8_t Direction=0;
-    if((Current&(1u<<0)) && !(Current&(1u<<1))) Direction=1;
-    if((Current&(1u<<1)) && !(Current&(1u<<0))) Direction=2;
+    if(OLED_MenuGestureOwner==(1u<<0) && (Current&(1u<<0))) Direction=1;
+    if(OLED_MenuGestureOwner==(1u<<1) && (Current&(1u<<1))) Direction=2;
     uint8_t PressedDirection=Pressed&((1u<<0)|(1u<<1));
     uint32_t Now=millis();
     if(PressedDirection && Direction)
@@ -705,13 +731,10 @@ void OLED_Task(void *Parms)
     if(Events&OLED_EventPageLong) OLED_HandleKeypadLock();
     if(!OLED_KeypadLocked)
 #endif
-    { if(Events&OLED_EventPageButton) OLED_HandleButton();
-#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
-    OLED_MenuHandleEvent(Events);
-#endif
-    }
+    { if(Events&OLED_EventPageButton) OLED_HandleButton(); }
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
     OLED_MenuPollJoystick();
+    if(!OLED_KeypadLocked) OLED_MenuHandleEvent(Events);
 #endif
 
     GPS_Position *GPS = GPS_getPosition();
