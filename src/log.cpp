@@ -31,6 +31,9 @@ uint32_t FlashLog_FileTime = 0;
 char     FlashLog_FileName[32] = { 0 };
 uint32_t FlashLog_FileFlush = 0;
 int      FlashLog_Files = 0;
+static uint32_t FlashLog_TotalSpace = 0;
+static uint32_t FlashLog_FreeSpace = 0;
+static volatile uint8_t FlashLog_StorageUpdateRequest = 0;
 
 static FatFile FlashLog_File;
 
@@ -221,6 +224,23 @@ static uint32_t FlashLog_FreeBytes(void)
   if(FreeClusters<0) return 0;
   return (uint32_t)FreeClusters * LogFS.bytesPerCluster(); }
 
+static void FlashLog_UpdateStorage(void)
+{ uint32_t Total=0;
+  uint32_t Free=0;
+  if(LogFS_isMounted())
+  { Total=(uint32_t)LogFS.clusterCount() * LogFS.bytesPerCluster();
+    Free=FlashLog_FreeBytes();
+    if(Free>Total) Free=Total; }
+  FlashLog_TotalSpace=Total;
+  FlashLog_FreeSpace=Free; }
+
+void FlashLog_GetStorage(uint32_t &Total, uint32_t &Free)
+{ Total=FlashLog_TotalSpace;
+  Free=FlashLog_FreeSpace; }
+
+void FlashLog_RequestStorageUpdate(void)
+{ FlashLog_StorageUpdateRequest++; }
+
 static int FlashLog_Clean(size_t MinFree=0)
 { if(!LogFS_isMounted()) return -1;
   uint32_t Total = (uint32_t)LogFS.clusterCount() * LogFS.bytesPerCluster();
@@ -308,6 +328,7 @@ extern "C" void vTaskLOG(void* pvParameters)
   FlashLog_FIFO.Clear();
 
   LogFS_begin();
+  FlashLog_UpdateStorage();
   uint32_t Oldest;
   int Files = FlashLog_FindOldestFile(Oldest, 0);
 
@@ -324,9 +345,17 @@ extern "C" void vTaskLOG(void* pvParameters)
     xSemaphoreGive(CONS_Mutex); }
 
   TickType_t PrevTick = 0;
+  uint32_t StorageUpdateTime = millis();
+  uint8_t StorageUpdateRequest = FlashLog_StorageUpdateRequest;
   static bool PrevFlying = 0;
   for( ; ; )
   { vTaskDelay(1);
+    uint32_t Now=millis();
+    bool StorageUpdateRequested=FlashLog_StorageUpdateRequest!=StorageUpdateRequest;
+    if(StorageUpdateRequested) StorageUpdateRequest=FlashLog_StorageUpdateRequest;
+    if(StorageUpdateRequested || (FlashLog_isOpen() && (uint32_t)(Now-StorageUpdateTime)>=10000))
+    { FlashLog_UpdateStorage();
+      StorageUpdateTime=Now; }
     bool Flying = GPS_TimeSinceLock>=10 && PowerMode>0;
     bool Landed = PrevFlying && !Flying;
     PrevFlying = Flying;
@@ -351,6 +380,7 @@ extern "C" void vTaskLOG(void* pvParameters)
       { FlashLog_FIFO.Read();
         vTaskDelay(1); }
     }
+    if(Landed) FlashLog_UpdateStorage();
     vTaskDelay(50);
   }
 }

@@ -34,6 +34,9 @@ void OLED_DrawPower    (u8g2_t *OLED, const GPS_Position *GPS=0);
 #ifdef WITH_LOOKOUT
 void OLED_DrawLookOut  (u8g2_t *OLED, const GPS_Position *GPS=0);
 #endif
+#ifdef WITH_LOG
+void OLED_DrawLogPage  (u8g2_t *OLED, const GPS_Position *GPS=0);
+#endif
 void OLED_DrawCompass  (u8g2_t *OLED, const GPS_Position *GPS=0);
 
 #endif // WITH_OLED

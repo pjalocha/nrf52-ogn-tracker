@@ -16,6 +16,8 @@ extern char     FlashLog_FileName[32];
 extern uint32_t FlashLog_FileFlush;
 extern int      FlashLog_Files;
 
+void FlashLog_GetStorage(uint32_t &Total, uint32_t &Free);
+void FlashLog_RequestStorageUpdate(void);
 bool FlashLog_isOpen(void);
 int  FlashLog_FullFileName(char *FileName, uint32_t Time);
 int  FlashLog_ShortFileName(char *FileName, uint32_t Time);

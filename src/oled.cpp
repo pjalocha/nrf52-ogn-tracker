@@ -12,6 +12,11 @@
 
 #include "ogn-radio.h"
 
+#ifdef WITH_LOG
+#include "external_flash_fs.h"
+#include "log.h"
+#endif
+
 #ifdef WITH_OLED
 
 static char Line[32];
@@ -33,6 +38,17 @@ static const uint8_t OLED_Page_RelayOGN    = 7;
 static const uint8_t OLED_Page_RelayADSL   = 8;
 #ifdef WITH_LOOKOUT
 static const uint8_t OLED_Page_LookOut     = 9;
+#endif
+#ifdef WITH_LOG
+#ifdef WITH_LOOKOUT
+static const uint8_t OLED_Page_Log         = 10;
+#else
+static const uint8_t OLED_Page_Log         = 9;
+#endif
+#endif
+#if defined(WITH_LOOKOUT) && defined(WITH_LOG)
+static const uint8_t OLED_Pages             = 11;
+#elif defined(WITH_LOOKOUT) || defined(WITH_LOG)
 static const uint8_t OLED_Pages             = 10;
 #else
 static const uint8_t OLED_Pages             = 9;
@@ -55,9 +71,6 @@ static bool OLED_KeypadLocked              = false;
 
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
 #include "external_flash_fs.h"
-#ifdef WITH_LOG
-#include "log.h"
-#endif
 
 static const uint32_t OLED_EventMenuClick  = 1u<<2;
 static const uint32_t OLED_EventMenuLong   = 1u<<3;
@@ -383,6 +396,9 @@ static void OLED_MenuFormatFlash(void)
     return; }
 #endif
   bool Formatted=LogFS_format(Serial);
+#ifdef WITH_LOG
+  FlashLog_RequestStorageUpdate();
+#endif
   HardwareStatus.SPIFFS=Formatted;
   int Result=Formatted ? Parameters.WriteToNVS() : -1;
   if(Formatted) LogFS_listRoot(Serial);
@@ -627,6 +643,9 @@ static bool OLED_PageAvailable(uint8_t Page)
 #ifdef WITH_LOOKOUT
     case OLED_Page_LookOut:
 #endif
+#ifdef WITH_LOG
+    case OLED_Page_Log:
+#endif
       return true;
     case OLED_Page_Baro:
 #if defined(WITH_BMP180) || defined(WITH_BMP280) || defined(WITH_MS5607) || defined(WITH_BME280) || defined(WITH_MS5611)
@@ -676,6 +695,9 @@ static int OLED_DrawPage(const GPS_Position *GPS)
     case OLED_Page_RelayADSL: OLED_DrawRelayADSL (OLED.getU8g2(), GPS); break;
 #ifdef WITH_LOOKOUT
     case OLED_Page_LookOut:   OLED_DrawLookOut   (OLED.getU8g2(), GPS); break;
+#endif
+#ifdef WITH_LOG
+    case OLED_Page_Log:       OLED_DrawLogPage   (OLED.getU8g2(), GPS); break;
 #endif
     default: return 0; }
   OLED_DrawStatusBar(OLED.getU8g2(), GPS);
@@ -1127,6 +1149,39 @@ void OLED_DrawRelayADSL(u8g2_t *OLED, const GPS_Position *GPS)
   }
   if(!Displayed) u8g2_DrawStr(OLED, 0, 32, "No ADS-L relays");
 }
+
+#ifdef WITH_LOG
+void OLED_DrawLogPage(u8g2_t *OLED, const GPS_Position *GPS)
+{ char Line[32];
+  u8g2_SetFont(OLED, u8g2_font_5x8_tr);
+  u8g2_DrawStr(OLED, 0, 21, "FLIGHT LOGS");
+
+  if(!LogFS_isMounted())
+  { u8g2_DrawStr(OLED, 0, 39, "External flash");
+    u8g2_DrawStr(OLED, 0, 48, "not mounted");
+    return; }
+
+  uint32_t Total=0, Free=0;
+  FlashLog_GetStorage(Total, Free);
+  uint32_t Used=Total>Free ? Total-Free : 0;
+  sprintf(Line, "Used: %lukB", (unsigned long)(Used/1024));
+  u8g2_DrawStr(OLED, 0, 30, Line);
+  sprintf(Line, "Free: %lukB", (unsigned long)(Free/1024));
+  u8g2_DrawStr(OLED, 0, 39, Line);
+
+  if(FlashLog_FileTime)
+  { strcpy(Line, "Start: ");
+    Format_HHMMSS(Line+7, FlashLog_FileTime);
+    Line[13]=0; }
+  else strcpy(Line, "No log this flight");
+  u8g2_DrawStr(OLED, 0, 48, Line);
+
+  uint32_t Size=(FlashLog_FileFlush+512)>>10;
+  if(FlashLog_Files>=0)
+    sprintf(Line, "Size:%lukB Logs:%d", (unsigned long)Size, FlashLog_Files);
+  else sprintf(Line, "Size:%lukB Logs:--", (unsigned long)Size);
+  u8g2_DrawStr(OLED, 0, 57, Line); }
+#endif
 
 void OLED_DrawPower(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[32];
