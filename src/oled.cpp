@@ -511,7 +511,8 @@ static void OLED_MenuPollJoystick(void)
   { if(Pressed&(1u<<0)) OLED_MenuChangeAlert(+1);
     if(Pressed&(1u<<1)) OLED_MenuChangeAlert(-1); }
   else if(OLED_Menu==OLED_MenuGhost)
-  { if(Pressed&(1u<<0) || Pressed&(1u<<1)) OLED_MenuChangeGhost(+1); }
+  { if(Pressed&(1u<<0)) OLED_MenuChangeGhost(+1);
+    if(Pressed&(1u<<1)) OLED_MenuChangeGhost(-1); }
   else if(OLED_Menu==OLED_MenuTextEdit)
   { uint8_t Direction=0;
     if(OLED_MenuGestureOwner==(1u<<0) && (Current&(1u<<0))) Direction=1;
