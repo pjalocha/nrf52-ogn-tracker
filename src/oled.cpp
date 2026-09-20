@@ -139,6 +139,8 @@ static const char OLED_MenuTextCharacters[] =
   " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-+_/@#:";
 
 static void OLED_SetPowerSave(bool PowerSave);
+static void OLED_PreviousPage(void);
+static void OLED_NextPage(void);
 
 static void OLED_MenuBeepOpen(void)
 { Play(Play_Vol_1 | Play_Oct_0 | 0x05, 80); }
@@ -470,7 +472,18 @@ static void OLED_MenuPollJoystick(void)
      OLED_MenuGestureOwner==OLED_MenuGestureCenter)
     Pressed=0;
   else Pressed&=OLED_MenuGestureOwner;
-  if(OLED_Menu==OLED_MenuList)
+  if(OLED_Menu==OLED_MenuClosed)
+  { uint8_t PagePresses=Pressed&((1u<<2)|(1u<<3));
+    if(PagePresses)
+    { bool WasOff=OLED_PageOFF;
+      OLED_PageOFF=false;
+      if(WasOff)
+      { OLED_SetPowerSave(false);
+        OLED_PageChange=true; }
+      else if(PagePresses&(1u<<2)) OLED_PreviousPage();
+      else OLED_NextPage();
+      OLED_PageActive=millis(); } }
+  else if(OLED_Menu==OLED_MenuList)
   { if(Pressed&(1u<<0))
     { if(OLED_MenuItem==0) OLED_MenuItem=OLED_MenuItems-1; else OLED_MenuItem--; OLED_PageChange=true; }
     if(Pressed&(1u<<1))
@@ -660,6 +673,12 @@ static void OLED_NextPage(void)
 { for(uint8_t Idx=0; Idx<OLED_Pages; Idx++)
   { OLED_Page++;
     if(OLED_Page>=OLED_Pages) OLED_Page=0;
+    if(OLED_PageAvailable(OLED_Page)) break; }
+  OLED_PageChange=true; }
+
+static void OLED_PreviousPage(void)
+{ for(uint8_t Idx=0; Idx<OLED_Pages; Idx++)
+  { if(OLED_Page==0) OLED_Page=OLED_Pages-1; else OLED_Page--;
     if(OLED_PageAvailable(OLED_Page)) break; }
   OLED_PageChange=true; }
 
