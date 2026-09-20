@@ -689,7 +689,8 @@ static void ProcessCtrlC(void)                                  // print system 
   CONS_UART_Write('\r'); CONS_UART_Write('\n');
   Parameters.Write(CONS_UART_Write);                         // write the parameters to the console
 
-  Serial.printf("Batt:%6.4fV %+4.1fmV/min\n", 0.0001f*((10*BatteryVoltage+128)>>8), 0.1f*((600*BatteryVoltageRate+128)>>8));
+  Serial.printf("Batt:%6.4fV %+4.1fmV/min\n",
+     0.0001f*((10*BatteryVoltage+128)>>8), 0.1f*((600*BatteryVoltageRate+128)>>8));
   // Format_String(CONS_UART_Write, "Batt:");
   // Format_UnsDec(CONS_UART_Write, (10*BatteryVoltage+128)>>8, 5, 4);
   // Format_String(CONS_UART_Write, "V ");

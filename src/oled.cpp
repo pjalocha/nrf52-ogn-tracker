@@ -754,6 +754,7 @@ void OLED_Task(void *Parms)
   (void)Parms;
   OLED_TaskHandle = xTaskGetCurrentTaskHandle();
   OLED_Init();
+  vTaskDelay(pdMS_TO_TICKS(2000)); // leave the startup logo visible briefly
 
   GPS_Position *PrevGPS=0;
   for( ; ; )
@@ -813,6 +814,10 @@ void OLED_DrawLogo(u8g2_t *OLED, const GPS_Position *GPS)  // draw logo and hard
   u8g2_SetFont(OLED, u8g2_font_8x13_tr);
   u8g2_DrawStr(OLED, 69, 43, "Tracker");
 
+  u8g2_DrawStr(OLED,  0, 16 ,"nRF52840");
+#ifdef WITH_GPS_PCAS
+  u8g2_DrawStr(OLED,  0, 28 ,"PCAS GPS");
+#endif
 #ifdef WITH_GPS_MTK
   u8g2_DrawStr(OLED,  0, 28 ,"MTK GPS");
 #endif
@@ -827,6 +832,9 @@ void OLED_DrawLogo(u8g2_t *OLED, const GPS_Position *GPS)  // draw logo and hard
 #endif
 #ifdef WITH_BME280
   u8g2_DrawStr(OLED,  0, 52 ,"BME280");
+#endif
+#ifdef WITH_BLE_SPP
+  u8g2_DrawStr(OLED,  0, 52 ,"BLE SPP");
 #endif
 }
 
@@ -1186,7 +1194,7 @@ void OLED_DrawLogPage(u8g2_t *OLED, const GPS_Position *GPS)
 void OLED_DrawPower(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[32];
   u8g2_SetFont(OLED, u8g2_font_7x13_tf);              // 5 lines, 12 pixels/line
-  uint8_t Len=Format_String(Line+Len, " USB       Batt ");
+  uint8_t Len=Format_String(Line, " USB       Batt ");
   Line[Len]=0;
   u8g2_DrawStr(OLED, 0, 24, Line);
   int16_t BattVolt=(BatteryVoltage+128)>>8; // [mV] measured and averaged  battery voltage
@@ -1219,7 +1227,11 @@ void OLED_DrawPower(u8g2_t *OLED, const GPS_Position *GPS)
   }
 #endif // WITH_XPOWERS
 
-
+  u8g2_SetFont(OLED, u8g2_font_6x12_tr);
+  sprintf(Line, "%+4.1fmV/min", 0.1f*((600*BatteryVoltageRate+128)>>8));
+  u8g2_DrawStr(OLED, 64, 48, Line);
+  sprintf(Line, "%4.1fdegC", 0.1f*readMCUtemperature());
+  u8g2_DrawStr(OLED, 70, 60, Line);
 }
 
 #ifdef WITH_LOOKOUT
