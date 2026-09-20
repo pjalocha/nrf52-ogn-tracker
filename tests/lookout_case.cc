@@ -322,8 +322,138 @@ static int RunScans(void)
                         sizeof(WarnTimes)/sizeof(WarnTimes[0]), SetWarnTime);
   return Status; }
 
+static void SetCandidateState(Acft_RelPos &Pos, int16_t Time, int16_t X, uint16_t Speed)
+{ Pos.Clear();
+  Pos.Flags=0;
+  Pos.T=Time;
+  Pos.X=X;
+  Pos.Speed=Speed;
+  Pos.Heading=0;
+  Pos.hasClimb=1;
+  Pos.isMoving=1;
+  Pos.calcDir(); }
+
+static bool TestOtherMeCandidateGate(void)
+{ LookOut<1> Look;
+  Look.hasPosition=1;
+  SetCandidateState(Look.Pos, 20, 320, 20); // 160m east, 10m/s
+
+  LookOut_Target Candidate;
+  Candidate.Clear();
+  SetCandidateState(Candidate.Pos, 12, 240, 20); // four seconds earlier, should align to own position
+  if(!Look.isPreOtherMeCandidate(&Candidate))
+  { printf("OtherMe candidate gate: timestamp-aligned matching track rejected\n");
+    return 0; }
+  Candidate.PreOtherMe=1;
+  Look.calcRelPos(&Candidate);
+  if(!Look.isOtherMeFineMatch(&Candidate))
+  { printf("OtherMe fine gate: close moving co-track rejected\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 20, 1000, 20); // well beyond the loose position limit
+  if(Look.isPreOtherMeCandidate(&Candidate))
+  { printf("OtherMe candidate gate: distant track accepted\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 20, 320, 60); // 30m/s versus own 10m/s
+  if(Look.isPreOtherMeCandidate(&Candidate))
+  { printf("OtherMe candidate gate: different-speed track accepted\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 20, 320, 20); // same speed, opposite direction
+  Candidate.Pos.Heading=0x8000;
+  Candidate.Pos.calcDir();
+  if(Look.isPreOtherMeCandidate(&Candidate))
+  { printf("OtherMe candidate gate: divergent velocity vector accepted\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 20, 320, 20);
+  Candidate.Pos.Climb=40; // 20m/s vertical relative speed
+  if(Look.isPreOtherMeCandidate(&Candidate))
+  { printf("OtherMe candidate gate: different climb rate accepted\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 10, 320, 20); // five-second timestamp skew
+  if(Look.isPreOtherMeCandidate(&Candidate))
+  { printf("OtherMe candidate gate: excessive timestamp skew accepted\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 20, 420, 20); // 50m away: coarse candidate, not fine match
+  Candidate.PreOtherMe=1;
+  Look.calcRelPos(&Candidate);
+  if(!Look.isPreOtherMeCandidate(&Candidate) || Look.isOtherMeFineMatch(&Candidate))
+  { printf("OtherMe fine gate: loose-distance track accepted as a fine match\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 20, 320, 20);
+  Candidate.Pos.Z=120; // 60m altitude separation: coarse candidate, not a fine match
+  Candidate.PreOtherMe=1;
+  Look.calcRelPos(&Candidate);
+  if(!Look.isPreOtherMeCandidate(&Candidate) || Look.isOtherMeFineMatch(&Candidate))
+  { printf("OtherMe fine gate: vertically separated track accepted as a fine match\n");
+    return 0; }
+
+  SetCandidateState(Candidate.Pos, 20, 320, 20);
+  Candidate.Pos.isMoving=0;
+  Candidate.PreOtherMe=1;
+  Look.calcRelPos(&Candidate);
+  if(Look.isOtherMeFineMatch(&Candidate))
+  { printf("OtherMe fine gate: stationary tracks accepted as evidence\n");
+    return 0; }
+
+  LookOut_Target Votes;
+  Votes.Clear();
+  for(uint8_t Idx=0; Idx<LookOut<1>::OtherMeConfirmVotes; Idx++) Look.updateOtherMeHistory(&Votes,1);
+  if(!Votes.OtherMe)
+  { printf("OtherMe history: failed to confirm at positive-vote threshold\n");
+    return 0; }
+  for(uint8_t Idx=0; Idx<LookOut<1>::OtherMeConfirmVotes-1; Idx++) Look.updateOtherMeHistory(&Votes,0);
+  if(!Votes.OtherMe)
+  { printf("OtherMe history: confirmation cleared before release threshold\n");
+    return 0; }
+  Look.updateOtherMeHistory(&Votes,0);
+  if(Votes.OtherMe)
+  { printf("OtherMe history: confirmation not cleared at release threshold\n");
+    return 0; }
+
+  printf("OtherMe candidate, fine gate and history: PASS\n");
+  return 1; }
+
+static bool TestOtherMeProcessPipeline(void)
+{ LookOut<1> Look;
+  Look.hasPosition=1;
+  SetCandidateState(Look.Pos, 0, 0, 20);
+
+  LookOut_Target Update;
+  for(uint8_t Idx=0; Idx<LookOut<1>::OtherMeConfirmVotes; Idx++)
+  { if(Idx)
+    { Look.Pos.T+=2;
+      Look.Pos.X+=20; }
+    Update.Clear();
+    Update.ID=0x123456;
+    SetCandidateState(Update.Pos, Look.Pos.T, Look.Pos.X+4, 20); // 2m installation separation
+    Look.ProcessTarget(&Update); }
+  if(!Look.Target[0].PreOtherMe || !Look.Target[0].OtherMe)
+  { printf("OtherMe pipeline: repeated close updates did not confirm\n");
+    return 0; }
+
+  for(uint8_t Idx=0; Idx<LookOut<1>::OtherMeConfirmVotes; Idx++)
+  { Look.Pos.T+=2;
+    Look.Pos.X+=20;
+    Update.Clear();
+    Update.ID=0x123456;
+    SetCandidateState(Update.Pos, Look.Pos.T, Look.Pos.X+200, 20); // 100m: coarse-only, no fine votes
+    Look.ProcessTarget(&Update); }
+  if(Look.Target[0].OtherMe)
+  { printf("OtherMe pipeline: sustained mismatch did not release confirmation\n");
+    return 0; }
+
+  printf("OtherMe pipeline: PASS\n");
+  return 1; }
+
 int main(int argc, char **argv)
-{ if(argc>1 && strcmp(argv[1], "scan")==0) return RunScans();
+{ if(!TestOtherMeCandidateGate() || !TestOtherMeProcessPipeline()) return 1;
+  if(argc>1 && strcmp(argv[1], "scan")==0) return RunScans();
 
   CollisionScenario Scenario =
   { "turning climb",

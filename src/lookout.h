@@ -42,7 +42,8 @@ class LookOut_Target           // describes a flying aircrafts
      { // bool   isMoving   :1;   // is a moving target
        bool   isTracked  :1;   // is being tracked or only stored
        // bool   isHidden   :1;   // hidden track, should normally not be revealed
-       bool   OtherMe    :1;   // this is a dupplicated-me target
+       bool   PreOtherMe :1;   // passes the inexpensive pre-candidate gate
+       bool   OtherMe    :1;   // confirmed duplicate of own aircraft
        bool   Omni       :1;   // this is an omni-directional target
        bool   Reported   :1;   // this target has already been reported with $PFLAA or GDL90
        bool   Alloc      :1;   // is allocated or not (a free slot, where a new target can go into)
@@ -73,9 +74,10 @@ class LookOut_Target           // describes a flying aircrafts
   uint16_t   HorDist;        // [0.5m]   relative horizontal distance to target
    int16_t  MissTime;        // [0.5s]   estimated closest approach time
   uint16_t  MissDist;        // [0.5m]   estimated closest approach distance
+  uint32_t OtherMeHistory;   // rolling fine-match decisions, one bit per fresh target position
 
   public:
-   void Clear(void) { Pred=0; Flags=0; HorDist=0; MissDist=0; Call[0]=0; WarnLevel=0; TimeMargin=0xFF; DistMargin=0xFFFF; }
+   void Clear(void) { Pred=0; Flags=0; HorDist=0; MissDist=0; Call[0]=0; WarnLevel=0; TimeMargin=0xFF; DistMargin=0xFFFF; OtherMeHistory=0; }
 
    void setCall(const char *NewCall)
    { if(NewCall==0) return;
@@ -209,6 +211,15 @@ template <const uint8_t MaxTgts=32>
    const static int32_t   DistRange = 10000; // [m] drop immediately anything beyond this distance
    const static int16_t MinHorizSepar = 100; // [m] minimum horizontal separation
    const static int16_t MinVertSepar  =  50; // [m] minimum vertical separation
+   const static int16_t OtherMeMaxDist     = 200; // [m] loose candidate gate, not confirmation
+   const static int16_t OtherMeMaxRelSpeed =  15; // [m/s] loose candidate gate, not confirmation
+   const static int16_t OtherMeMaxTimeSkew =   4; // [s] linear position correction limit
+   const static int16_t OtherMeFineMaxDist =  25; // [m] fine-match horizontal distance
+   const static int16_t OtherMeFineMaxVertDist = 50; // [m] tolerate altitude-source differences, reject clear separation
+   const static int16_t OtherMeFineMaxRelSpeed = 3; // [m/s] fine-match relative speed
+   const static uint8_t OtherMeConfirmVotes = 24; // positive votes in 32 updates to confirm
+   const static uint8_t OtherMeReleaseVotes =  8; // at/below this count confirmation clears
+   const static int16_t OtherMeHistoryTimeout = 20; // [s] reset evidence after a long target gap
    // const static int16_t WarnTime      =  20; // [sec] target warning prior to closest miss
 
    const static int16_t MaxPastPacketTime   = 20; // [sec] accept/reject threshold for delayed packets
@@ -571,6 +582,13 @@ template <const uint8_t MaxTgts=32>
        // printf("Climb/Turn %08X dT=%3.1fs ", New->ID, 0.5*dT); New->Pos.Print();
      }
 
+     if(Old)                                                                       // carry evidence across target-slot replacement
+     { int16_t OldTime=Old->Pos.T-Old->Pred;                                       // [0.5sec] last measured target time
+       int16_t Gap=New->Pos.T-OldTime;                                             // [0.5sec]
+       if(Gap>=0 && Gap<=(2*OtherMeHistoryTimeout))
+       { New->OtherMeHistory=Old->OtherMeHistory;
+         New->OtherMe=Old->OtherMe; } }
+
      if(Old) Old->Alloc=0;                                                             // mark old position as "not allocated"
      New->Alloc=1;                                                                     // mark this position as allocated
      LookOut_Target *Slot = Target+SafestIdx;                                          // get a free or safest slot
@@ -583,9 +601,13 @@ template <const uint8_t MaxTgts=32>
      if(Pos.T<=(New->Pos.T-4))                                                         // if new position more than 2sec away from own
      { Pos.StepFwd2secs(); Pred+=4; }                                                  // bring own position closer in time
 
+     New->PreOtherMe=isPreOtherMeCandidate(New);                                      // inexpensive coarse pre-candidate gate
+
      uint8_t Warn=calcTarget(New);                                                     // calculate the safety margin for the target
      if(Warn>WarnLevel) WarnLevel=Warn;                                                // record higest warnign level
      // printf("ProcessTarget() ... calc()\n");
+
+     updateOtherMeHistory(New, isOtherMeFineMatch(New));                               // one vote per fresh target position
 
      uint8_t MaxIdx=SafestIdx; uint32_t Max=New->calcSafeDist();                       // look for the safest position on the list
      for( uint8_t Idx=MaxIdx; ; )                                                      // go over targets
@@ -599,6 +621,68 @@ template <const uint8_t MaxTgts=32>
      SafestIdx=MaxIdx;                                                                 // take the safest slot for the next time
 
      return New; }
+
+   bool isPreOtherMeCandidate(LookOut_Target *Tgt)
+   { int16_t TimeSkew=abs((int)Pos.T-(int)Tgt->Pos.T);                                 // [0.5sec]
+     if(TimeSkew>(2*OtherMeMaxTimeSkew)) return 0;                                     // don't trust long linear extrapolations
+
+     // Project the target to Pos.T using its current velocity (turn is deliberately
+     // ignored over this short interval), matching calcRelPos()'s time correction.
+     int32_t dX=(int32_t)Tgt->Pos.X-Pos.X;
+     int32_t dY=(int32_t)Tgt->Pos.Y-Pos.Y;
+     int32_t dZ=(int32_t)Tgt->Pos.Z-Pos.Z;
+     int16_t dT=Pos.T-Tgt->Pos.T;                                                      // [0.5sec]
+     if(dT)
+     { int32_t Vx,Vy;
+       Tgt->Pos.getSpeedVector(Vx,Vy);
+       dX+=(dT*Vx)>>1;                                                                // [0.5m]
+       dY+=(dT*Vy)>>1;
+       if(Tgt->Pos.hasClimb) dZ+=(dT*(int32_t)Tgt->Pos.Climb)>>1; }
+
+     // Reject only clearly distant tracks; this deliberately broad threshold is just
+     // an inexpensive first-stage filter, not evidence sufficient to suppress alerts.
+     const int32_t MaxDist=2*OtherMeMaxDist;                                           // [0.5m]
+     if(abs(dX)>MaxDist || abs(dY)>MaxDist || abs(dZ)>MaxDist) return 0;
+     if(Acft_RelPos::SqrDistance((int16_t)dX, (int16_t)dY, (int16_t)dZ)>(uint32_t)(MaxDist*MaxDist)) return 0;
+
+     int32_t TgtVx,TgtVy,OwnVx,OwnVy;
+     Tgt->Pos.getSpeedVector(TgtVx,TgtVy);
+     Pos.getSpeedVector(OwnVx,OwnVy);
+     int32_t dVx=TgtVx-OwnVx, dVy=TgtVy-OwnVy;                                        // [0.5m/s]
+     int32_t dVz=0;
+     if(Tgt->Pos.hasClimb && Pos.hasClimb) dVz=(int32_t)Tgt->Pos.Climb-Pos.Climb;      // [0.5m/s], if available on both
+
+     const int32_t MaxRelSpeed=2*OtherMeMaxRelSpeed;                                  // [0.5m/s]
+     if(abs(dVx)>MaxRelSpeed || abs(dVy)>MaxRelSpeed || abs(dVz)>MaxRelSpeed) return 0;
+     if((dVx*dVx+dVy*dVy+dVz*dVz)>(MaxRelSpeed*MaxRelSpeed)) return 0;
+     return 1; }
+
+   bool isOtherMeFineMatch(LookOut_Target *Tgt)
+   { if(!Tgt->PreOtherMe || !Pos.isMoving || !Tgt->Pos.isMoving) return 0;             // stationary tracks provide no useful evidence
+     const int32_t MaxDist=2*OtherMeFineMaxDist;                                      // [0.5m]
+     if(abs((int32_t)Tgt->dX)>MaxDist || abs((int32_t)Tgt->dY)>MaxDist) return 0;
+     if(Acft_RelPos::SqrDistance(Tgt->dX,Tgt->dY)>(uint32_t)(MaxDist*MaxDist)) return 0;
+     if(abs((int32_t)Tgt->dZ)>(2*OtherMeFineMaxVertDist)) return 0;
+
+     int32_t TgtVx,TgtVy,OwnVx,OwnVy;
+     Tgt->Pos.getSpeedVector(TgtVx,TgtVy);
+     Pos.getSpeedVector(OwnVx,OwnVy);
+     int32_t dVx=TgtVx-OwnVx, dVy=TgtVy-OwnVy, dVz=0;                                // [0.5m/s]
+     if(Tgt->Pos.hasClimb && Pos.hasClimb) dVz=(int32_t)Tgt->Pos.Climb-Pos.Climb;
+     const int32_t MaxRelSpeed=2*OtherMeFineMaxRelSpeed;                             // [0.5m/s]
+     if(abs(dVx)>MaxRelSpeed || abs(dVy)>MaxRelSpeed || abs(dVz)>MaxRelSpeed) return 0;
+     return (dVx*dVx+dVy*dVy+dVz*dVz)<=(MaxRelSpeed*MaxRelSpeed); }
+
+   static uint8_t countOtherMeVotes(uint32_t History)
+   { uint8_t Count=0;
+     for( ; History; History&=(History-1)) Count++;
+     return Count; }
+
+   void updateOtherMeHistory(LookOut_Target *Tgt, bool Match)
+   { Tgt->OtherMeHistory=(Tgt->OtherMeHistory<<1)|(Match?1u:0u);                       // zero initialization is conservative
+     uint8_t Votes=countOtherMeVotes(Tgt->OtherMeHistory);
+     if(!Tgt->OtherMe && Votes>=OtherMeConfirmVotes) Tgt->OtherMe=1;
+     else if(Tgt->OtherMe && Votes<=OtherMeReleaseVotes) Tgt->OtherMe=0; }
 
    void calcRelPos(LookOut_Target *Tgt)
    { Tgt->dX = Tgt->Pos.X - Pos.X;                                     // [0.5m] relative distance
