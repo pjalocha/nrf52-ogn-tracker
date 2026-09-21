@@ -805,8 +805,18 @@ void OLED_Task(void *Parms)
 #if defined(WITH_WIO_TRACKER)
     if(Events&OLED_EventPageLong) OLED_HandleKeypadLock();
     if(!OLED_KeypadLocked)
-#endif
     { if(Events&OLED_EventPageButton) OLED_HandleButton(); }
+    else if((Events&OLED_EventPageButton) && OLED_PageOFF)
+    { OLED_PageOFF=false;
+      OLED_SetPowerSave(false);
+      OLED_PageChange=true;
+#ifdef WITH_OLED_DIM
+      OLED_PageActive=millis();
+#endif
+    }
+#else
+    if(Events&OLED_EventPageButton) OLED_HandleButton();
+#endif
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
     OLED_MenuPollJoystick();
     if(!OLED_KeypadLocked) OLED_MenuHandleEvent(Events);
