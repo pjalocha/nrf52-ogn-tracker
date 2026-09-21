@@ -1358,21 +1358,30 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
   OLED_DrawReturnCardinal(Display, 'W', (uint16_t)(0xC000-Rotation));
 
   u8g2_SetFont(Display, u8g2_font_6x12_tr);
-  if(!Flight.Takeoff.isValid())
-  { u8g2_DrawStr(Display, 67, 22, "NO TAKEOFF");
-    u8g2_DrawStr(Display, 67, 32, "DST --");
-    u8g2_DrawStr(Display, 67, 42, "SPD --");
-    u8g2_DrawStr(Display, 67, 52, "TRK ---");
-    u8g2_DrawStr(Display, 67, 62, "ETE --:--");
-    return; }
   if(!GPSvalid)
-  { u8g2_DrawStr(Display, 67, 22, "WAIT GPS");
-    u8g2_DrawStr(Display, 67, 32, "DST --");
-    u8g2_DrawStr(Display, 67, 42, "SPD --");
-    u8g2_DrawStr(Display, 67, 52, "TRK ---");
+  { u8g2_DrawStr(Display, 67, 22, Flight.Takeoff.isValid() ? "WAIT GPS" : "NO TAKEOFF");
+    u8g2_DrawStr(Display, 67, 32, "---\xB0/---");
+    u8g2_DrawStr(Display, 67, 42, "---\xB0/---kt");
+    u8g2_DrawStr(Display, 67, 52, "----m AMSL");
     u8g2_DrawStr(Display, 67, 62, "ETE --:--");
     return; }
-  u8g2_DrawStr(Display, 67, 22, "RETURN");
+
+  u8g2_DrawStr(Display, 67, 22, Flight.Takeoff.isValid() ? "RETURN" : "NO TAKEOFF");
+
+  uint32_t Speed=(GPS->Speed>0) ? (uint32_t)GPS->Speed : 0;
+  uint32_t SpeedKts=(Speed*1944u+5000u)/10000u;
+  sprintf(Line, "%03ld%c/%lukt", (long)(((Heading+5)/10)%360), 0xB0,
+                                  (unsigned long)SpeedKts);
+  u8g2_DrawStr(Display, 67, 42, Line);
+
+  int32_t AltitudeMeters=(GPS->Altitude>=0) ? (GPS->Altitude+5)/10 : (GPS->Altitude-5)/10;
+  sprintf(Line, "%ldm AMSL", (long)AltitudeMeters);
+  u8g2_DrawStr(Display, 67, 52, Line);
+
+  if(!Flight.Takeoff.isValid())
+  { u8g2_DrawStr(Display, 67, 32, "---\xB0/---");
+    u8g2_DrawStr(Display, 67, 62, "ETE --:--");
+    return; }
 
   int32_t North=GPS_Position::calcLatDistance(GPS->Latitude, Flight.Takeoff.Latitude);
   int32_t East=GPS_Position::calcLonDistance(GPS->Longitude, Flight.Takeoff.Longitude,
@@ -1381,20 +1390,25 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
   uint16_t Bearing=(Distance>=10) ? OLED_ReturnBearing(East, North) : 0;
   if(Distance>=10) OLED_DrawReturnPointer(Display, (uint16_t)(Bearing-Rotation));
 
-  if(Distance<1000) sprintf(Line, "DST %lum", (unsigned long)Distance);
+  uint32_t BearingDegrees=(((uint32_t)Bearing*360u+32768u)>>16)%360u;
+  if(Distance<1000u)
+  { if(Distance<10u) sprintf(Line, "---\xB0/%lum", (unsigned long)Distance);
+    else sprintf(Line, "%03lu%c/%lum", (unsigned long)BearingDegrees, 0xB0,
+                                        (unsigned long)Distance); }
   else
-  { uint32_t TenthNm=(Distance*10u+926u)/1852u;
-    sprintf(Line, "DST %lu.%lunm", (unsigned long)(TenthNm/10),
-                                     (unsigned long)(TenthNm%10)); }
+  { uint32_t TenthKm=(Distance+50u)/100u;
+    sprintf(Line, "%03lu%c/%lu.%lukm", (unsigned long)BearingDegrees, 0xB0,
+            (unsigned long)(TenthKm/10u), (unsigned long)(TenthKm%10u));
+    if(u8g2_GetStrWidth(Display, Line)>61)
+    { uint32_t Km=(Distance+500u)/1000u;
+      sprintf(Line, "%03lu%c/%lukm", (unsigned long)BearingDegrees, 0xB0,
+                                       (unsigned long)Km); }
+    if(u8g2_GetStrWidth(Display, Line)>61)
+    { uint32_t Nm=(Distance+926u)/1852u;
+      sprintf(Line, "%03lu%c/%lunm", (unsigned long)BearingDegrees, 0xB0,
+                                       (unsigned long)Nm); } }
   u8g2_DrawStr(Display, 67, 32, Line);
 
-  uint32_t Speed=(GPS->Speed>0) ? (uint32_t)GPS->Speed : 0;
-  uint32_t SpeedKts=(Speed*1944u+5000u)/10000u;
-  sprintf(Line, "SPD %lukt", (unsigned long)SpeedKts);
-  u8g2_DrawStr(Display, 67, 42, Line);
-
-  sprintf(Line, "TRK %03ld", (long)(((Heading+5)/10)%360));
-  u8g2_DrawStr(Display, 67, 52, Line);
   if(Distance==0) sprintf(Line, "ETE 00:00");
   else if(Speed==0) sprintf(Line, "ETE --:--");
   else
