@@ -95,7 +95,7 @@ static uint32_t GPS_nextBaudRate(void)   // produce next (possible) GPS baudrate
 
 uint32_t GPS_getBaudRate (void) { return GPS_BaudRate; }
 
-const uint32_t GPS_TargetBaudRate = 230499; // 115200; // [bps]
+const uint32_t GPS_TargetBaudRate = 230400; // 115200; // [bps]
 
 #ifdef WITH_MAVLINK
 uint16_t MAVLINK_BattVolt = 0;   // [mV]
