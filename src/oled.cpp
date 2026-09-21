@@ -1332,11 +1332,12 @@ static void OLED_DrawReturnPointer(u8g2_t *Display, uint16_t Angle)
   int16_t Sin=Isin((int16_t)Angle), Cos=Icos((int16_t)Angle);
   int16_t TipX = Xc+(((int32_t)TipRadius*Sin+0x800)>>12);
   int16_t TipY = Yc-(((int32_t)TipRadius*Cos+0x800)>>12);
+  int16_t TailX = Xc-(TipX-Xc), TailY = Yc-(TipY-Yc);
   int16_t BaseX=Xc+(((int32_t)BaseRadius*Sin+0x800)>>12);
   int16_t BaseY=Yc-(((int32_t)BaseRadius*Cos+0x800)>>12);
   int16_t SideX=((int32_t)HalfWidth*Cos+0x800)>>12;
   int16_t SideY=((int32_t)HalfWidth*Sin+0x800)>>12;
-  u8g2_DrawLine(Display, Xc, Yc, TipX, TipY);
+  u8g2_DrawLine(Display, TailX, TailY, TipX, TipY);
   u8g2_DrawTriangle(Display, TipX, TipY, BaseX+SideX, BaseY+SideY,
                      BaseX-SideX, BaseY-SideY); }
 
@@ -1344,15 +1345,10 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
 { char Line[24];
   const int16_t Xc=27, Yc=39, Radius=22;
   const bool GPSvalid = GPS && GPS->isValid();
-  static bool TrackUp=false;
-  if(!GPSvalid) TrackUp=false;
-  else if(!TrackUp && GPS->Speed>=35) TrackUp=true;  // enter track-up above 3.5m/s
-  else if(TrackUp && GPS->Speed<=25) TrackUp=false;  // return north-up below 2.5m/s
-
   int32_t Heading=GPSvalid ? GPS->Heading : 0;
   Heading%=3600; if(Heading<0) Heading+=3600;
   uint16_t TrackAngle=(uint16_t)(((uint32_t)Heading*65536u+1800u)/3600u);
-  uint16_t Rotation=TrackUp ? TrackAngle : 0;
+  uint16_t Rotation=GPSvalid ? TrackAngle : 0;
 
   u8g2_SetFont(Display, u8g2_font_7x13_tf);
   u8g2_DrawCircle(Display, Xc, Yc, Radius, U8G2_DRAW_ALL);
@@ -1367,14 +1363,14 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
     u8g2_DrawStr(Display, 67, 32, "DST --");
     u8g2_DrawStr(Display, 67, 42, "SPD --");
     u8g2_DrawStr(Display, 67, 52, "TRK ---");
-    u8g2_DrawStr(Display, 67, 62, "ETA --:--");
+    u8g2_DrawStr(Display, 67, 62, "ETE --:--");
     return; }
   if(!GPSvalid)
   { u8g2_DrawStr(Display, 67, 22, "WAIT GPS");
     u8g2_DrawStr(Display, 67, 32, "DST --");
     u8g2_DrawStr(Display, 67, 42, "SPD --");
     u8g2_DrawStr(Display, 67, 52, "TRK ---");
-    u8g2_DrawStr(Display, 67, 62, "ETA --:--");
+    u8g2_DrawStr(Display, 67, 62, "ETE --:--");
     return; }
   u8g2_DrawStr(Display, 67, 22, "RETURN");
 
@@ -1383,7 +1379,6 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
                                              GPS->LatitudeCosine);
   uint32_t Distance=IntDistance(East, North);
   uint16_t Bearing=(Distance>=10) ? OLED_ReturnBearing(East, North) : 0;
-  uint16_t RelativeBearing=(uint16_t)(Bearing-TrackAngle);
   if(Distance>=10) OLED_DrawReturnPointer(Display, (uint16_t)(Bearing-Rotation));
 
   if(Distance<1000) sprintf(Line, "DST %lum", (unsigned long)Distance);
@@ -1398,23 +1393,18 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
   sprintf(Line, "SPD %lukt", (unsigned long)SpeedKts);
   u8g2_DrawStr(Display, 67, 42, Line);
 
-  if(TrackUp)
-  { sprintf(Line, "TRK %03ld", (long)(((Heading+5)/10)%360));
-    u8g2_DrawStr(Display, 67, 52, Line);
-    int32_t ClosingSpeed=((int32_t)Speed*Icos((int16_t)RelativeBearing))>>12;
-    if(ClosingSpeed<=0) sprintf(Line, "ETA AWAY");
-    else
-    { uint32_t ETAseconds=(Distance*10u+(uint32_t)ClosingSpeed/2u)/(uint32_t)ClosingSpeed;
-      if(ETAseconds<24u*60u*60u)
-      { uint32_t ETA=(uint32_t)GPS->Hour*3600u+(uint32_t)GPS->Min*60u+GPS->Sec+ETAseconds;
-        ETA%=24u*60u*60u;
-        sprintf(Line, "ETA %02lu:%02luZ", (unsigned long)(ETA/3600u),
-                                          (unsigned long)((ETA/60u)%60u)); }
-      else sprintf(Line, "ETA >24h"); } }
+  sprintf(Line, "TRK %03ld", (long)(((Heading+5)/10)%360));
+  u8g2_DrawStr(Display, 67, 52, Line);
+  if(Distance==0) sprintf(Line, "ETE 00:00");
+  else if(Speed==0) sprintf(Line, "ETE --:--");
   else
-  { u8g2_DrawStr(Display, 67, 52, "TRK ---");
-    u8g2_DrawStr(Display, 67, 62, "ETA --:--");
-    return; }
+  { uint32_t ETEseconds=(Distance*10u+Speed/2u)/Speed;
+    uint32_t ETEminutes=(ETEseconds+30u)/60u;
+    uint32_t ETEhours=ETEminutes/60u;
+    if(ETEhours<100u)
+      sprintf(Line, "ETE %02lu:%02lu", (unsigned long)ETEhours,
+                                        (unsigned long)(ETEminutes%60u));
+    else sprintf(Line, "ETE >99h"); }
   u8g2_DrawStr(Display, 67, 62, Line); }
 
 void OLED_DrawCompass(u8g2_t *OLED, const GPS_Position *GPS)
