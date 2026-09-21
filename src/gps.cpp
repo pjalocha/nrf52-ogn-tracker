@@ -5,6 +5,9 @@
 #include "main.h"
 
 #include "gps.h"
+#ifdef WITH_OLED
+#include "oled.h"
+#endif
 #include "nmea.h"
 #include "ubx.h"
 #ifdef WITH_MAVLINK
@@ -115,6 +118,9 @@ void FlightProcess(void)
   GPS_Position &GPS = GPS_Pos[GPS_PosIdx];
   Flight.Process(GPS);
   GPS.InFlight=Flight.inFlight();
+#ifdef WITH_OLED
+  if(!PrevInFlight && GPS.InFlight) OLED_TakeoffDetected();
+#endif
   if(Parameters.AddrType!=0) return;                    // only do the following if address-type is random
   uint32_t Rnd = Random.GPS; // ^TRX.Random;
   if(RndID_TimeToChange==0)

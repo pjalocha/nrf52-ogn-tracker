@@ -11,6 +11,7 @@ extern U8G2_SSD1306_128X64_NONAME_F_HW_I2C OLED;
 extern uint8_t OLED_Rotate;
 
 void OLED_ButtonSingle(void);
+void OLED_TakeoffDetected(void);
 #if defined(WITH_WIO_TRACKER)
 void OLED_ButtonLong(void);
 #endif
@@ -37,6 +38,7 @@ void OLED_DrawLookOut  (u8g2_t *OLED, const GPS_Position *GPS=0);
 #ifdef WITH_LOG
 void OLED_DrawLogPage  (u8g2_t *OLED, const GPS_Position *GPS=0);
 #endif
+void OLED_DrawReturn   (u8g2_t *OLED, const GPS_Position *GPS=0);
 void OLED_DrawCompass  (u8g2_t *OLED, const GPS_Position *GPS=0);
 
 #endif // WITH_OLED

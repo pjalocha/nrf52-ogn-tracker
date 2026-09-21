@@ -42,17 +42,18 @@ static const uint8_t OLED_Page_LookOut     = 9;
 #ifdef WITH_LOG
 #ifdef WITH_LOOKOUT
 static const uint8_t OLED_Page_Log         = 10;
+static const uint8_t OLED_Page_BaseCount   = 11;
 #else
 static const uint8_t OLED_Page_Log         = 9;
+static const uint8_t OLED_Page_BaseCount   = 10;
 #endif
-#endif
-#if defined(WITH_LOOKOUT) && defined(WITH_LOG)
-static const uint8_t OLED_Pages             = 11;
-#elif defined(WITH_LOOKOUT) || defined(WITH_LOG)
-static const uint8_t OLED_Pages             = 10;
+#elif defined(WITH_LOOKOUT)
+static const uint8_t OLED_Page_BaseCount   = 10;
 #else
-static const uint8_t OLED_Pages             = 9;
+static const uint8_t OLED_Page_BaseCount   = 9;
 #endif
+static const uint8_t OLED_Page_Return       = OLED_Page_BaseCount;
+static const uint8_t OLED_Pages             = OLED_Page_BaseCount+1;
 static uint8_t OLED_Page                   = 0;
 static bool OLED_PageChange                = false;
 static bool OLED_PageOFF                   = false;
@@ -64,6 +65,7 @@ static const uint32_t OLED_PageTimeout     = (uint32_t)60000*WITH_OLED_DIM;
 
 static TaskHandle_t OLED_TaskHandle = 0;
 static const uint32_t OLED_EventPageButton = 1u<<0;
+static const uint32_t OLED_EventTakeoff    = 1u<<4;
 #if defined(WITH_WIO_TRACKER)
 static const uint32_t OLED_EventPageLong   = 1u<<1;
 static bool OLED_KeypadLocked              = false;
@@ -639,6 +641,9 @@ static void OLED_MenuDraw(u8g2_t *Display)
 void OLED_ButtonSingle(void)
 { if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventPageButton, eSetBits); }
 
+void OLED_TakeoffDetected(void)
+{ if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventTakeoff, eSetBits); }
+
 #if defined(WITH_WIO_TRACKER)
 void OLED_ButtonLong(void)
 { if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventPageLong, eSetBits); }
@@ -660,6 +665,7 @@ static bool OLED_PageAvailable(uint8_t Page)
 #ifdef WITH_LOG
     case OLED_Page_Log:
 #endif
+    case OLED_Page_Return:
       return true;
     case OLED_Page_Baro:
 #if defined(WITH_BMP180) || defined(WITH_BMP280) || defined(WITH_MS5607) || defined(WITH_BME280) || defined(WITH_MS5611)
@@ -719,6 +725,7 @@ static int OLED_DrawPage(const GPS_Position *GPS)
 #ifdef WITH_LOG
     case OLED_Page_Log:       OLED_DrawLogPage   (OLED.getU8g2(), GPS); break;
 #endif
+    case OLED_Page_Return:    OLED_DrawReturn    (OLED.getU8g2(), GPS); break;
     default: return 0; }
   OLED_DrawStatusBar(OLED.getU8g2(), GPS);
   if(xSemaphoreTake(I2C_Mutex, 50))
@@ -752,6 +759,20 @@ static void OLED_HandleButton(void)
 #ifdef WITH_OLED_DIM
   OLED_PageActive=millis();
 #endif
+}
+
+static void OLED_HandleTakeoff(void)
+{
+#if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+  if(OLED_MenuActive()) OLED_MenuClose();
+#endif
+  OLED_Page=OLED_Page_Return;
+  OLED_PageOFF=false;
+#ifdef WITH_OLED_DIM
+  OLED_PageActive=millis();
+#endif
+  OLED_SetPowerSave(false);
+  OLED_PageChange=true;
 }
 
 #if defined(WITH_WIO_TRACKER)
@@ -790,6 +811,7 @@ void OLED_Task(void *Parms)
     OLED_MenuPollJoystick();
     if(!OLED_KeypadLocked) OLED_MenuHandleEvent(Events);
 #endif
+    if(Events&OLED_EventTakeoff) OLED_HandleTakeoff();
 
     GPS_Position *GPS = GPS_getPosition();
     if(GPS==0) GPS = GPS_Pos+GPS_PosIdx;
@@ -1292,6 +1314,108 @@ static int16_t OLED_ClipInt16(int32_t Value)
 { if(Value> 32767) return  32767;
   if(Value<-32768) return -32768;
   return Value; }
+
+static uint16_t OLED_ReturnBearing(int32_t East, int32_t North)
+{ while((East>16000) || (East< -16000) || (North>16000) || (North< -16000))
+  { East/=2; North/=2; }
+  return (uint16_t)IntAtan2((int16_t)East, (int16_t)North); }
+
+static void OLED_DrawReturnCardinal(u8g2_t *Display, char Cardinal, uint16_t Angle)
+{ const int16_t Xc=29, Yc=39, Radius=15;
+  int16_t X=(int16_t)(((int32_t)Radius*Isin((int16_t)Angle)+0x800)>>12);
+  int16_t Y=(int16_t)(((int32_t)Radius*Icos((int16_t)Angle)+0x800)>>12);
+  char Text[2]={Cardinal, 0};
+  u8g2_DrawStr(Display, Xc+X-4, Yc-Y+4, Text); }
+
+static void OLED_DrawReturnPointer(u8g2_t *Display, uint16_t Angle)
+{ const int16_t Xc=29, Yc=39, TipRadius=13, BaseRadius=4, HalfWidth=3;
+  int16_t Sin=Isin((int16_t)Angle), Cos=Icos((int16_t)Angle);
+  int16_t TipX = Xc+(((int32_t)TipRadius*Sin+0x800)>>12);
+  int16_t TipY = Yc-(((int32_t)TipRadius*Cos+0x800)>>12);
+  int16_t BaseX=Xc+(((int32_t)BaseRadius*Sin+0x800)>>12);
+  int16_t BaseY=Yc-(((int32_t)BaseRadius*Cos+0x800)>>12);
+  int16_t SideX=((int32_t)HalfWidth*Cos+0x800)>>12;
+  int16_t SideY=((int32_t)HalfWidth*Sin+0x800)>>12;
+  u8g2_DrawLine(Display, Xc, Yc, TipX, TipY);
+  u8g2_DrawTriangle(Display, TipX, TipY, BaseX+SideX, BaseY+SideY,
+                     BaseX-SideX, BaseY-SideY); }
+
+void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
+{ char Line[24];
+  const int16_t Xc=27, Yc=39, Radius=22;
+  const bool GPSvalid = GPS && GPS->isValid();
+  static bool TrackUp=false;
+  if(!GPSvalid) TrackUp=false;
+  else if(!TrackUp && GPS->Speed>=35) TrackUp=true;  // enter track-up above 3.5m/s
+  else if(TrackUp && GPS->Speed<=25) TrackUp=false;  // return north-up below 2.5m/s
+
+  int32_t Heading=GPSvalid ? GPS->Heading : 0;
+  Heading%=3600; if(Heading<0) Heading+=3600;
+  uint16_t TrackAngle=(uint16_t)(((uint32_t)Heading*65536u+1800u)/3600u);
+  uint16_t Rotation=TrackUp ? TrackAngle : 0;
+
+  u8g2_SetFont(Display, u8g2_font_7x13_tf);
+  u8g2_DrawCircle(Display, Xc, Yc, Radius, U8G2_DRAW_ALL);
+  OLED_DrawReturnCardinal(Display, 'N', (uint16_t)(0x0000-Rotation));
+  OLED_DrawReturnCardinal(Display, 'E', (uint16_t)(0x4000-Rotation));
+  OLED_DrawReturnCardinal(Display, 'S', (uint16_t)(0x8000-Rotation));
+  OLED_DrawReturnCardinal(Display, 'W', (uint16_t)(0xC000-Rotation));
+
+  u8g2_SetFont(Display, u8g2_font_6x12_tr);
+  if(!Flight.Takeoff.isValid())
+  { u8g2_DrawStr(Display, 67, 22, "NO TAKEOFF");
+    u8g2_DrawStr(Display, 67, 32, "DST --");
+    u8g2_DrawStr(Display, 67, 42, "SPD --");
+    u8g2_DrawStr(Display, 67, 52, "TRK ---");
+    u8g2_DrawStr(Display, 67, 62, "ETA --:--");
+    return; }
+  if(!GPSvalid)
+  { u8g2_DrawStr(Display, 67, 22, "WAIT GPS");
+    u8g2_DrawStr(Display, 67, 32, "DST --");
+    u8g2_DrawStr(Display, 67, 42, "SPD --");
+    u8g2_DrawStr(Display, 67, 52, "TRK ---");
+    u8g2_DrawStr(Display, 67, 62, "ETA --:--");
+    return; }
+  u8g2_DrawStr(Display, 67, 22, "RETURN");
+
+  int32_t North=GPS_Position::calcLatDistance(GPS->Latitude, Flight.Takeoff.Latitude);
+  int32_t East=GPS_Position::calcLonDistance(GPS->Longitude, Flight.Takeoff.Longitude,
+                                             GPS->LatitudeCosine);
+  uint32_t Distance=IntDistance(East, North);
+  uint16_t Bearing=(Distance>=10) ? OLED_ReturnBearing(East, North) : 0;
+  uint16_t RelativeBearing=(uint16_t)(Bearing-TrackAngle);
+  if(Distance>=10) OLED_DrawReturnPointer(Display, (uint16_t)(Bearing-Rotation));
+
+  if(Distance<1000) sprintf(Line, "DST %lum", (unsigned long)Distance);
+  else
+  { uint32_t TenthNm=(Distance*10u+926u)/1852u;
+    sprintf(Line, "DST %lu.%lunm", (unsigned long)(TenthNm/10),
+                                     (unsigned long)(TenthNm%10)); }
+  u8g2_DrawStr(Display, 67, 32, Line);
+
+  uint32_t Speed=(GPS->Speed>0) ? (uint32_t)GPS->Speed : 0;
+  uint32_t SpeedKts=(Speed*1944u+5000u)/10000u;
+  sprintf(Line, "SPD %lukt", (unsigned long)SpeedKts);
+  u8g2_DrawStr(Display, 67, 42, Line);
+
+  if(TrackUp)
+  { sprintf(Line, "TRK %03ld", (long)(((Heading+5)/10)%360));
+    u8g2_DrawStr(Display, 67, 52, Line);
+    int32_t ClosingSpeed=((int32_t)Speed*Icos((int16_t)RelativeBearing))>>12;
+    if(ClosingSpeed<=0) sprintf(Line, "ETA AWAY");
+    else
+    { uint32_t ETAseconds=(Distance*10u+(uint32_t)ClosingSpeed/2u)/(uint32_t)ClosingSpeed;
+      if(ETAseconds<24u*60u*60u)
+      { uint32_t ETA=(uint32_t)GPS->Hour*3600u+(uint32_t)GPS->Min*60u+GPS->Sec+ETAseconds;
+        ETA%=24u*60u*60u;
+        sprintf(Line, "ETA %02lu:%02luZ", (unsigned long)(ETA/3600u),
+                                          (unsigned long)((ETA/60u)%60u)); }
+      else sprintf(Line, "ETA >24h"); } }
+  else
+  { u8g2_DrawStr(Display, 67, 52, "TRK ---");
+    u8g2_DrawStr(Display, 67, 62, "ETA --:--");
+    return; }
+  u8g2_DrawStr(Display, 67, 62, Line); }
 
 void OLED_DrawCompass(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[32];
