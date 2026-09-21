@@ -504,6 +504,16 @@ void setup()
   { Parameters.getAprsCall(Parameters.BTname);
     Parameters.WriteToNVS(); }
 
+#ifdef HARD_NAME
+  strcpy(Parameters.Hard, HARD_NAME);
+#endif
+#ifdef SOFT_NAME
+  #ifdef WITH_OTA_HTTPS
+    if(Parameters.Soft[0]==0)                  // with OTA, firmware serial number is stored as Parameters.Soft
+  #endif
+      strcpy(Parameters.Soft, SOFT_NAME);
+#endif
+
   CONS_Mutex = xSemaphoreCreateMutex();
   I2C_Mutex = xSemaphoreCreateMutex();
 #ifdef WITH_BLE_SPP
