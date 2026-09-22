@@ -30,11 +30,13 @@
 #define Radio_PinTXEN Pin_NotUsed
 
 // UI LED
-#define LED_Pin        _PINNUM(0, 30) // green; red=P0.26, blue=P0.06
+#define LED_PinRed     _PINNUM(0, 26) //
+#define LED_PinGreen   _PINNUM(0, 30) //
+#define LED_PinBlue    _PINNUM(0, 06) //
 #define LED_StateOn    LOW            // active low
 #define LED_StateOff   HIGH
 
-#define LED_PinRed LED_Pin
+#define LED_Pin LED_PinRed
 
 // Battery ADC and enable
 #define Battery_PinADC   _PINNUM(0, 31) // AIN7_BAT, battery voltage ADC

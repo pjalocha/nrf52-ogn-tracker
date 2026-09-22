@@ -495,11 +495,29 @@ void setup()
 #if Button_Pin >= 0
   Button_Init();
 #endif
+#ifdef WITH_INTERNAL_FS
+  bool InternalFSReady=InternalFS.begin();
+  if(!InternalFSReady)
+  { if(InternalFS.format()) InternalFSReady=InternalFS.begin(); }
+#else
   InternalFS.begin();
+#endif
   HardwareStatus.SPIFFS = LogFS_begin();
-  if(Parameters.ReadFromNVS()<0)               // try to get parameters from NVS
-  { Parameters.setDefault(getUniqueAddress()); // set default parameter values
+#ifdef WITH_INTERNAL_FS
+  int ParameterRead=InternalFSReady ? Parameters.ReadFromNVS() : -2;
+  if(ParameterRead < -1 && InternalFSReady)
+  { // A bad or obsolete parameter record can make the FS unreadable; reformat and recover defaults.
+    InternalFSReady=InternalFS.format();
+    if(InternalFSReady) InternalFSReady=InternalFS.begin();
+    ParameterRead=-1; }
+  if(ParameterRead<0)                         // use defaults if parameters are absent or invalid
+  { Parameters.setDefault(getUniqueAddress());
+    if(InternalFSReady) Parameters.WriteToNVS(); }
+#else
+  if(Parameters.ReadFromNVS()<0)               // try to get parameters from external flash
+  { Parameters.setDefault(getUniqueAddress());
     Parameters.WriteToNVS(); }
+#endif
   if(Parameters.BTname[0]==0)                  // for the BT to work
   { Parameters.getAprsCall(Parameters.BTname);
     Parameters.WriteToNVS(); }

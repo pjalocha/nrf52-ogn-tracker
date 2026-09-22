@@ -29,7 +29,7 @@
 #include "nmea.h"
 #include "format.h"
 
-#ifdef WITH_WIO_TRACKER
+#if defined(WITH_WIO_TRACKER) || defined(WITH_WIO_XIAO)
 #include "external_flash_fs.h"
 #endif
 
@@ -431,7 +431,7 @@ uint16_t StratuxPort;
     InternalFS.remove(Name);
     Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_WRITE);
     if (!ParmFile) return -1;
-    int Size = sizeof(FlashParameters);
+    uint32_t Size = sizeof(FlashParameters);
     int Written = ParmFile.write((const uint8_t *)this, Size);
     ParmFile.close();
     if(Written!=Size) return -2;
@@ -446,7 +446,8 @@ uint16_t StratuxPort;
 #ifdef WITH_INTERNAL_FS
     Adafruit_LittleFS_Namespace::File ParmFile = InternalFS.open(Name, Adafruit_LittleFS_Namespace::FILE_O_READ);
     if (!ParmFile) return -1;
-    int Size = sizeof(FlashParameters);
+    uint32_t Size = sizeof(FlashParameters);
+    if(ParmFile.size()!=Size) { ParmFile.close(); return -4; }
     int Read = ParmFile.read((uint8_t *)this, Size);
     ParmFile.close();
     if(Read!=Size) return -2;

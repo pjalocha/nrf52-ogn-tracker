@@ -52,8 +52,14 @@ static const uint8_t OLED_Page_BaseCount   = 10;
 #else
 static const uint8_t OLED_Page_BaseCount   = 9;
 #endif
+#ifdef WITH_LORAWAN
+static const uint8_t OLED_Page_LoRaWAN      = OLED_Page_BaseCount;
+static const uint8_t OLED_Page_Return       = OLED_Page_BaseCount+1;
+static const uint8_t OLED_Pages             = OLED_Page_BaseCount+2;
+#else
 static const uint8_t OLED_Page_Return       = OLED_Page_BaseCount;
 static const uint8_t OLED_Pages             = OLED_Page_BaseCount+1;
+#endif
 static uint8_t OLED_Page                   = 0;
 static bool OLED_PageChange                = false;
 static bool OLED_PageOFF                   = false;
@@ -665,6 +671,9 @@ static bool OLED_PageAvailable(uint8_t Page)
 #ifdef WITH_LOG
     case OLED_Page_Log:
 #endif
+#ifdef WITH_LORAWAN
+    case OLED_Page_LoRaWAN:
+#endif
     case OLED_Page_Return:
       return true;
     case OLED_Page_Baro:
@@ -724,6 +733,9 @@ static int OLED_DrawPage(const GPS_Position *GPS)
 #endif
 #ifdef WITH_LOG
     case OLED_Page_Log:       OLED_DrawLogPage   (OLED.getU8g2(), GPS); break;
+#endif
+#ifdef WITH_LORAWAN
+    case OLED_Page_LoRaWAN:   OLED_DrawLoRaWAN   (OLED.getU8g2(), GPS); break;
 #endif
     case OLED_Page_Return:    OLED_DrawReturn    (OLED.getU8g2(), GPS); break;
     default: return 0; }
@@ -1285,6 +1297,47 @@ void OLED_DrawPower(u8g2_t *OLED, const GPS_Position *GPS)
   sprintf(Line, "%4.1fdegC", 0.1f*readMCUtemperature());
   u8g2_DrawStr(OLED, 70, 60, Line);
 }
+
+#ifdef WITH_LORAWAN
+void OLED_DrawLoRaWAN(u8g2_t *OLED, const GPS_Position *GPS)
+{ char Line[32];
+  const char *StateName[4] = { "Not-conn.", "Join-Req", "+Joined+", "Pkt-Sent" };
+  uint8_t Len=Format_String(Line, "TTN: ");
+  if(WANdev.Enable)
+  { if(WANdev.State==2) Len+=Format_Hex(Line+Len, WANdev.DevAddr);
+    else if(WANdev.State<=3) Len+=Format_String(Line+Len, StateName[WANdev.State]);
+    else Len+=Format_Hex(Line+Len, WANdev.State); }
+  else Len+=Format_String(Line+Len, "Disabled");
+  Line[Len]=0;
+
+  u8g2_SetFont(OLED, u8g2_font_6x12_tr);
+  u8g2_DrawStr(OLED, 0, 23, Line);
+
+  if(WANdev.State>=2)
+  { Len=0;
+    Len+=Format_Hex(Line+Len, (uint16_t)WANdev.UpCount);
+    Len+=Format_String(Line+Len, " >> ");
+    Len+=Format_Hex(Line+Len, (uint16_t)WANdev.DnCount);
+    Line[Len]=0;
+    u8g2_DrawStr(OLED, 0, 35, Line);
+
+    Len=0;
+    Len+=Format_SignDec(Line+Len, ((int32_t)WANdev.RxSNR*10+2)>>2, 2, 1);
+    Len+=Format_String(Line+Len, "dB ");
+    Len+=Format_SignDec(Line+Len, (int32_t)WANdev.RxRSSI, 3);
+    Len+=Format_String(Line+Len, "dBm");
+    Line[Len]=0;
+    u8g2_DrawStr(OLED, 0, 47, Line);
+  }
+
+  Len=Format_String(Line, "Key: ");
+  Len+=Format_HexBytes(Line+Len, WANdev.AppKey, 2);
+  Line[Len++]='.'; Line[Len++]='.';
+  Len+=Format_Hex(Line+Len, WANdev.AppKey[15]);
+  Line[Len]=0;
+  u8g2_DrawStr(OLED, 0, 59, Line);
+}
+#endif
 
 #ifdef WITH_LOOKOUT
 void OLED_DrawLookOut(u8g2_t *OLED, const GPS_Position *GPS)
