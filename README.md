@@ -6,6 +6,20 @@ show local status on an EPD/OLED display, internally log flights, and can expose
 
 ![ThinkNode-M5, T-Beam Supreme, T-Echo and Wio Tracker running OGN-Tracker software](docs/images/trackers-photo.jpg)
 
+## Support the Development
+
+This project is open-source and developed voluntarily in spare time, without a
+development budget. If you find it useful, please consider supporting the
+development and research related to the Open Glider Network:
+
+- OGN/ADS-L/FANET trackers
+- OGN ground receivers which form the base of the network
+- testing software and hardware experiments
+
+**Donate via PayPal:**
+
+https://paypal.me/paweljalocha
+
 ## Supported Hardware
 
 - LilyGo T-Echo
