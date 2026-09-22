@@ -45,6 +45,8 @@ Generated firmware files are written below `.pio/build/<env>/`. The UF2 file is 
 .pio/build/Wio-Tracker/firmware.uf2
 ```
 
+Ready-to-flash images for users are published under [GitHub Releases](https://github.com/pjalocha/nrf52-ogn-tracker/releases). See [`firmware/README.md`](firmware/README.md) for the release naming and versioning scheme.
+
 ## Flashing
 
 You need to double-click the reset button on your device so it enters bootloader mode.

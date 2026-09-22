@@ -21,6 +21,8 @@ const uint8_t KNOB_Tick = 15;
 #include "play.h"
 
 #ifndef VERSION
+// Release builds override this through scripts/version.py; keep a useful
+// value for ordinary untagged local builds.
 #define VERSION "0.1.36"
 #endif
 
