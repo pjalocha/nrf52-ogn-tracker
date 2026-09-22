@@ -79,6 +79,12 @@ static bool OLED_KeypadLocked              = false;
 
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
 #include "external_flash_fs.h"
+#ifdef WITH_LORAWAN
+#include <qrcode.h>
+#ifdef WITH_BLE_SPP
+#include "nrf_soc.h"
+#endif
+#endif
 
 static const uint32_t OLED_EventMenuClick  = 1u<<2;
 static const uint32_t OLED_EventMenuLong   = 1u<<3;
@@ -95,7 +101,12 @@ enum OLED_MenuState
   OLED_MenuGhost,
   OLED_MenuTextEdit,
   OLED_MenuFormatConfirm,
-  OLED_MenuDefaultsConfirm };
+  OLED_MenuDefaultsConfirm,
+#ifdef WITH_LORAWAN
+  OLED_MenuTTNConfirm,
+  OLED_MenuQR
+#endif
+};
 
 enum OLED_MenuTextField
 { OLED_MenuTextNone,
@@ -119,7 +130,11 @@ static int OLED_MenuSaveResult = 0;
 static uint32_t OLED_MenuMessageTime = 0;
 static const char *OLED_MenuMessage = 0;
 
-static const uint8_t OLED_MenuItems = 11;
+static const uint8_t OLED_MenuItems = 11
+#ifdef WITH_LORAWAN
+  + 1
+#endif
+;
 static const uint8_t OLED_MenuTextLength = FlashParameters::InfoParmLen-1;
 static const uint8_t OLED_MenuLookOutWarnTimes[4] = { 20, 30, 40, 50 };
 static const uint8_t OLED_MenuGestureCenter  = 1u<<4;
@@ -127,6 +142,14 @@ static const uint8_t OLED_MenuGestureBlocked = 1u<<7;
 static uint8_t OLED_MenuGestureOwner = 0;
 static bool OLED_MenuCenterGesturePending = false;
 static bool OLED_MenuCenterGesturePrincipal = false;
+
+#ifdef WITH_LORAWAN
+static const uint8_t OLED_QRVersion = 2;
+static const uint8_t OLED_QRPayloadLength = 24; // 8-byte DevEUI + 16-byte AppKey
+static uint8_t OLED_QRPayload[OLED_QRPayloadLength];
+static uint8_t OLED_QRModules[79];             // ceil((4*2+17)^2/8)
+static QRCode OLED_QRCode;
+#endif
 
 static const char *OLED_MenuAcftTypeNames[16] =
 { "Unknown", "Glider", "Towplane", "Helicopter",
@@ -201,6 +224,69 @@ static void OLED_MenuSaveParameters(void)
   OLED_MenuShowMessage(Result<0 ? "ERROR" : "Saved", Result);
   if(Result>=0) OLED_MenuBeepSaved(); }
 
+#ifdef WITH_LORAWAN
+static bool OLED_MenuBuildQR(const uint8_t *Key)
+{ uint64_t DevEUI=getUniqueID();
+  for(uint8_t Idx=0; Idx<8; Idx++)
+    OLED_QRPayload[Idx]=(uint8_t)(DevEUI>>(56-8*Idx));
+  memcpy(OLED_QRPayload+8, Key, 16);
+  return qrcode_initBytes(&OLED_QRCode, OLED_QRModules, OLED_QRVersion,
+                          ECC_MEDIUM, OLED_QRPayload, OLED_QRPayloadLength)==0; }
+
+static bool OLED_MenuRandomAppKey(uint8_t *Key)
+{
+#ifdef WITH_BLE_SPP
+  uint8_t Offset=0;
+  while(Offset<16)
+  { uint8_t Available=0;
+    if(sd_rand_application_bytes_available_get(&Available)!=NRF_SUCCESS) return false;
+    if(Available==0) { vTaskDelay(1); continue; }
+    uint8_t Count=Available;
+    if(Count>16-Offset) Count=16-Offset;
+    uint32_t Result=sd_rand_application_vector_get(Key+Offset, Count);
+    if(Result==NRF_ERROR_SOC_RAND_NOT_ENOUGH_VALUES) continue;
+    if(Result!=NRF_SUCCESS) return false;
+    Offset+=Count; }
+  return true;
+#elif defined(NRF_RNG)
+  NRF_RNG->EVENTS_VALRDY=0;
+  NRF_RNG->TASKS_START=1;
+  for(uint8_t Idx=0; Idx<16; Idx++)
+  { uint32_t Start=millis();
+    while(!NRF_RNG->EVENTS_VALRDY)
+    { if((uint32_t)(millis()-Start)>100) { NRF_RNG->TASKS_STOP=1; return false; }
+      vTaskDelay(1); }
+    Key[Idx]=NRF_RNG->VALUE;
+    NRF_RNG->EVENTS_VALRDY=0; }
+  NRF_RNG->TASKS_STOP=1;
+  return true;
+#else
+  (void)Key;
+  return false;
+#endif
+}
+
+static void OLED_MenuRegisterTTN(void)
+{ uint8_t Key[16];
+  if(!OLED_MenuRandomAppKey(Key))
+  { OLED_MenuShowMessage("RNG error", -1);
+    OLED_Menu=OLED_MenuList; OLED_PageChange=true; return; }
+  if(!OLED_MenuBuildQR(Key))
+  { OLED_MenuShowMessage("QR error", -1);
+    OLED_Menu=OLED_MenuList; OLED_PageChange=true; return; }
+
+  // Let the radio task replace the live LoRaWAN state and write it to flash.
+  // LittleFS access stays in one task, avoiding a concurrent radio/OLED write.
+  Radio_LoRaWANRegister(Key);
+  OLED_Menu=OLED_MenuQR;
+  OLED_PageChange=true; }
+
+static bool OLED_MenuTTNConfigured(void)
+{ for(uint8_t Idx=0; Idx<16; Idx++)
+    if(WANdev.AppKey[Idx]) return true;
+  return false; }
+#endif
+
 static void OLED_MenuEnterText(OLED_MenuTextField Field);
 
 static void OLED_MenuEnterItem(void)
@@ -249,6 +335,11 @@ static void OLED_MenuEnterItem(void)
     case 10:
       OLED_Menu=OLED_MenuDefaultsConfirm;
       break;
+#ifdef WITH_LORAWAN
+    case 11:
+      OLED_Menu=OLED_MenuTTNConfirm;
+      break;
+#endif
     default: break; }
   OLED_PageChange=true; }
 
@@ -440,6 +531,9 @@ static void OLED_MenuHandleEvent(uint32_t Event)
   { if(OLED_Menu==OLED_MenuClosed) OLED_MenuOpen();
     else if(OLED_Menu==OLED_MenuFormatConfirm) OLED_MenuFormatFlash();
     else if(OLED_Menu==OLED_MenuDefaultsConfirm) OLED_MenuResetDefaults();
+#ifdef WITH_LORAWAN
+    else if(OLED_Menu==OLED_MenuTTNConfirm) OLED_MenuRegisterTTN();
+#endif
     else if(OLED_Menu!=OLED_MenuList) OLED_MenuCommitItem();
   }
   if(Event&OLED_EventMenuClick)
@@ -548,11 +642,64 @@ static void OLED_MenuPollJoystick(void)
   else TextRepeatKey=0;
 }
 
-static void OLED_MenuDraw(u8g2_t *Display)
-{ u8g2_SetFont(Display, u8g2_font_7x13_tf);
+static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
+{
+#ifdef WITH_LORAWAN
+  if(OLED_Menu==OLED_MenuQR)
+  { const uint8_t Scale=2;
+    const uint8_t Size=OLED_QRCode.size;
+    const uint8_t X=(64-Size*Scale)/2;
+    const uint8_t Y=(64-Size*Scale)/2;
+    u8g2_SetDrawColor(Display, 1);
+    u8g2_DrawBox(Display, 0, 0, 128, 64);
+    u8g2_SetDrawColor(Display, 0);
+    for(uint8_t Row=0; Row<Size; Row++)
+      for(uint8_t Col=0; Col<Size; Col++)
+        if(qrcode_getModule(&OLED_QRCode, Col, Row))
+          u8g2_DrawBox(Display, X+Col*Scale, Y+Row*Scale, Scale, Scale);
+    // Keep the identity and the GPS UTC time next to the QR code.  The
+    // identity is split over two lines because the complete 16-digit MAC
+    // does not fit in the right half of the OLED.
+    char MAC[17];
+    Format_Hex(MAC, getUniqueID());
+    MAC[16]=0;
+    char MACtail[9];
+    memcpy(MACtail, MAC+8, 8);
+    MACtail[8]=0;
+    u8g2_SetFont(Display, u8g2_font_5x8_tr);
+    u8g2_DrawStr(Display, 66, 8,  "TTN CONFIG");
+    // u8g2_DrawStr(Display, 66, 16, "MAC");
+    MAC[8]=0;
+    u8g2_DrawStr(Display, 66, 24, MAC);
+    u8g2_DrawStr(Display, 66, 32, MACtail);
+
+    char Date[10];
+    if(GPS && GPS->isDateValid())
+    { GPS->FormatDate_DDMMYY(Date);
+      u8g2_DrawStr(Display, 66, 40, Date); }
+    else u8g2_DrawStr(Display, 66, 40, "GPS wait");
+
+    char Time[10];
+    if(GPS && GPS->isTimeValid())
+    { GPS->FormatTime(Time);
+      // FormatTime() includes milliseconds; the compact QR screen only
+      // needs whole seconds and marks the value as UTC.
+      Time[8]='Z'; Time[9]=0;
+      u8g2_DrawStr(Display, 66, 48, Time); }
+    else u8g2_DrawStr(Display, 66, 48, "GPS wait");
+    u8g2_DrawStr(Display, 66, 60, "SEND PHOTO");
+    u8g2_SetDrawColor(Display, 1);
+    return;
+  }
+#endif
+  u8g2_SetFont(Display, u8g2_font_7x13_tf);
   if(OLED_Menu==OLED_MenuList)
   { static const char *ItemNames[OLED_MenuItems] =
-    { "AcftType", "AddrType", "Address", "Tx power", "Warn time", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults" };
+    { "AcftType", "AddrType", "Address", "Tx power", "Warn time", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults"
+#ifdef WITH_LORAWAN
+      , "Register TTN"
+#endif
+    };
     uint8_t First=OLED_MenuItem>1 ? OLED_MenuItem-1 : 0;
     if(First+3>OLED_MenuItems) First=OLED_MenuItems-3;
     u8g2_DrawStr(Display, 0, 22, "OGN settings");
@@ -638,6 +785,14 @@ static void OLED_MenuDraw(u8g2_t *Display)
     u8g2_SetFont(Display, u8g2_font_6x12_tr);
     u8g2_DrawStr(Display, 0, 42, "Long=YES");
     u8g2_DrawStr(Display, 0, 58, "Short=cancel"); }
+#ifdef WITH_LORAWAN
+  else if(OLED_Menu==OLED_MenuTTNConfirm)
+  { u8g2_DrawStr(Display, 0, 25, "REGISTER TTN?");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 38, OLED_MenuTTNConfigured() ? "Current TTN erased" : "New TTN setup");
+    u8g2_DrawStr(Display, 0, 50, "Long=YES");
+    u8g2_DrawStr(Display, 0, 62, "Short=cancel"); }
+#endif
   if(OLED_MenuMessage && (uint32_t)(millis()-OLED_MenuMessageTime)<2500)
   { u8g2_SetFont(Display, u8g2_font_6x12_tr);
     u8g2_DrawStr(Display, 82, 22, OLED_MenuMessage); }
@@ -708,8 +863,13 @@ static int OLED_DrawPage(const GPS_Position *GPS)
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
   if(OLED_MenuActive())
   { OLED.clearBuffer();
-    OLED_DrawStatusBar(OLED.getU8g2(), GPS);
-    OLED_MenuDraw(OLED.getU8g2());
+#ifdef WITH_LORAWAN
+    if(OLED_Menu==OLED_MenuQR)
+      OLED_MenuDraw(OLED.getU8g2(), GPS);
+    else
+#endif
+    { OLED_DrawStatusBar(OLED.getU8g2(), GPS);
+      OLED_MenuDraw(OLED.getU8g2(), GPS); }
     if(xSemaphoreTake(I2C_Mutex, 50))
     { OLED.sendBuffer();
       xSemaphoreGive(I2C_Mutex); }

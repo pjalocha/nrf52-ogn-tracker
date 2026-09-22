@@ -1064,6 +1064,34 @@ static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeL
 // #include "lorawan.h"
 
 LoRaWANnode WANdev;
+static volatile bool WAN_RegisterRequest = false;
+static uint8_t WAN_RegisterKey[16];
+
+void Radio_LoRaWANRegister(const uint8_t *Key)
+{ memcpy(WAN_RegisterKey, Key, 16);
+  WAN_RegisterRequest=true; }
+
+static void Radio_LoRaWANApplyRegister(void)
+{ if(!WAN_RegisterRequest) return;
+  uint8_t Key[16];
+  memcpy(Key, WAN_RegisterKey, 16);
+  WAN_RegisterRequest=false;
+
+  WANdev.Enable=0;
+  WANdev.Reset(getUniqueID(), Key);
+  WANdev.Enable=1;
+  WANdev.ABP=0;
+  WANdev.Chan=0;
+  WANdev.TxOptLen=0;
+  WANdev.UpCount=0;
+  WANdev.DnCount=0;
+  WANdev.WriteToNVS();
+#ifdef WITH_LORAWAN_DEBUG
+  if(xSemaphoreTake(CONS_Mutex, 100))
+  { Serial.printf("LoRaWAN: new OTAA credentials stored\n");
+    xSemaphoreGive(CONS_Mutex); }
+#endif
+}
 
 static void Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
 { // Serial.printf("WAN Tx[%d]\n", PktLen);
@@ -1247,7 +1275,8 @@ void Radio_Task(void *Parms)
 #endif
 
   for( ; ; )                                                      // main task loop: infinite
-  { if(!HardwareStatus.Radio) { vTaskDelay(1000); continue; }
+  { Radio_LoRaWANApplyRegister();
+    if(!HardwareStatus.Radio) { vTaskDelay(1000); continue; }
     if(PowerMode==0) { Radio.standby(); Radio.sleep(); Radio_Cache_Clear(); vTaskDelay(5000); continue; }
 
     int PktCount=0;
