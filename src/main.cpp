@@ -9,6 +9,9 @@
 #endif
 #include "epd.h"
 #include "oled.h"
+#ifdef WITH_TASK_STATS
+#include "taskstats.h"
+#endif
 
 #include <Wire.h>
 
@@ -496,6 +499,10 @@ void setup()
   Button_Init();
 #endif
 #ifdef WITH_INTERNAL_FS
+#ifdef WITH_LORAWAN
+  LoRaWANnode SavedWAN;
+  bool SavedWANValid=false;
+#endif
   bool InternalFSReady=InternalFS.begin();
   if(!InternalFSReady)
   { if(InternalFS.format()) InternalFSReady=InternalFS.begin(); }
@@ -507,8 +514,16 @@ void setup()
   int ParameterRead=InternalFSReady ? Parameters.ReadFromNVS() : -2;
   if(ParameterRead < -1 && InternalFSReady)
   { // A bad or obsolete parameter record can make the FS unreadable; reformat and recover defaults.
+#ifdef WITH_LORAWAN
+    // Keep a valid LoRaWAN registration while recovering the parameter file.
+    SavedWAN.Reset(getUniqueID());
+    SavedWANValid = SavedWAN.ReadFromNVS()>=0;
+#endif
     InternalFSReady=InternalFS.format();
     if(InternalFSReady) InternalFSReady=InternalFS.begin();
+#ifdef WITH_LORAWAN
+    if(InternalFSReady && SavedWANValid) SavedWAN.WriteToNVS();
+#endif
     ParameterRead=-1; }
   if(ParameterRead<0)                         // use defaults if parameters are absent or invalid
   { Parameters.setDefault(getUniqueAddress());
@@ -534,6 +549,9 @@ void setup()
 
   CONS_Mutex = xSemaphoreCreateMutex();
   I2C_Mutex = xSemaphoreCreateMutex();
+#ifdef WITH_TASK_STATS
+  TaskStats_Init();
+#endif
 #ifdef WITH_BLE_SPP
   BLE_Mutex = xSemaphoreCreateMutex();
 #endif
@@ -757,6 +775,13 @@ static void ProcessCtrlL(void)
 #endif
 }
 
+#ifdef WITH_TASK_STATS
+static void ProcessCtrlS(void)
+{ if(!xSemaphoreTake(CONS_Mutex, 100)) return;
+  TaskStats_Print();
+  xSemaphoreGive(CONS_Mutex); }
+#endif
+
 static void ProcessCtrlO(void)
 { static uint32_t LastTime=0;
   uint32_t Time=millis();
@@ -783,6 +808,7 @@ static int ProcessInput(void)
   const uint8_t CtrlL = 'L'-'@';
   const uint8_t CtrlO = 'O'-'@';
   const uint8_t CtrlP = 'P'-'@';
+  const uint8_t CtrlS = 'S'-'@';
   const uint8_t CtrlT = 'T'-'@';
   const uint8_t CtrlX = 'X'-'@';
 
@@ -794,6 +820,9 @@ static int ProcessInput(void)
     if(Byte==CtrlF) LogFS_listRoot(Serial);                         // if Ctrl-F: list external flash root
     if(Byte==CtrlL) ProcessCtrlL();                                  // if Ctrl-L: list log files
     if(Byte==CtrlO) ProcessCtrlO();                                  // double Ctrl-O formats external flash FAT
+#ifdef WITH_TASK_STATS
+    if(Byte==CtrlS) ProcessCtrlS();                                  // print FreeRTOS task statistics
+#endif
 #ifdef WITH_LOOKOUT
     if(Byte==CtrlT) ListTraffic();                                 // if Ctrl-T: print traffic
 #endif

@@ -1275,7 +1275,10 @@ void Radio_Task(void *Parms)
 #endif
 
   for( ; ; )                                                      // main task loop: infinite
-  { Radio_LoRaWANApplyRegister();
+  {
+#ifdef WITH_LORAWAN
+    Radio_LoRaWANApplyRegister();
+#endif
     if(!HardwareStatus.Radio) { vTaskDelay(1000); continue; }
     if(PowerMode==0) { Radio.standby(); Radio.sleep(); Radio_Cache_Clear(); vTaskDelay(5000); continue; }
 

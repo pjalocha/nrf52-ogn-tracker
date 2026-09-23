@@ -29,6 +29,9 @@ void OLED_DrawID       (u8g2_t *OLED, const GPS_Position *GPS=0);
 void OLED_DrawBaro     (u8g2_t *OLED, const GPS_Position *GPS=0);
 void OLED_DrawRF       (u8g2_t *OLED, const GPS_Position *GPS=0);
 void OLED_DrawRFcounts (u8g2_t *OLED, const GPS_Position *GPS=0);
+#ifdef WITH_TASK_STATS
+void OLED_DrawTaskStats(u8g2_t *OLED, const GPS_Position *GPS=0);
+#endif
 void OLED_DrawRelayOGN (u8g2_t *OLED, const GPS_Position *GPS=0);
 void OLED_DrawRelayADSL(u8g2_t *OLED, const GPS_Position *GPS=0);
 void OLED_DrawPower    (u8g2_t *OLED, const GPS_Position *GPS=0);

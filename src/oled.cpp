@@ -11,6 +11,9 @@
 #include "intmath.h"
 
 #include "ogn-radio.h"
+#ifdef WITH_TASK_STATS
+#include "taskstats.h"
+#endif
 
 #ifdef WITH_LOG
 #include "external_flash_fs.h"
@@ -52,13 +55,19 @@ static const uint8_t OLED_Page_BaseCount   = 10;
 #else
 static const uint8_t OLED_Page_BaseCount   = 9;
 #endif
-#ifdef WITH_LORAWAN
-static const uint8_t OLED_Page_LoRaWAN      = OLED_Page_BaseCount;
-static const uint8_t OLED_Page_Return       = OLED_Page_BaseCount+1;
-static const uint8_t OLED_Pages             = OLED_Page_BaseCount+2;
+#if 0 && defined(WITH_TASK_STATS) // Temporarily hide the incomplete OLED task-status page.
+static const uint8_t OLED_Page_TaskStats   = OLED_Page_BaseCount;
+static const uint8_t OLED_Page_AfterStats  = OLED_Page_BaseCount+1;
 #else
-static const uint8_t OLED_Page_Return       = OLED_Page_BaseCount;
-static const uint8_t OLED_Pages             = OLED_Page_BaseCount+1;
+static const uint8_t OLED_Page_AfterStats  = OLED_Page_BaseCount;
+#endif
+#ifdef WITH_LORAWAN
+static const uint8_t OLED_Page_LoRaWAN      = OLED_Page_AfterStats;
+static const uint8_t OLED_Page_Return       = OLED_Page_AfterStats+1;
+static const uint8_t OLED_Pages             = OLED_Page_AfterStats+2;
+#else
+static const uint8_t OLED_Page_Return       = OLED_Page_AfterStats;
+static const uint8_t OLED_Pages             = OLED_Page_AfterStats+1;
 #endif
 static uint8_t OLED_Page                   = 0;
 static bool OLED_PageChange                = false;
@@ -817,6 +826,9 @@ static bool OLED_PageAvailable(uint8_t Page)
     case OLED_Page_SatSNR:
     case OLED_Page_RF:
     case OLED_Page_RFcounts:
+#if 0 && defined(WITH_TASK_STATS) // Temporarily hide the incomplete OLED task-status page.
+    case OLED_Page_TaskStats:
+#endif
     case OLED_Page_Power:
     case OLED_Page_RelayOGN:
     case OLED_Page_RelayADSL:
@@ -885,6 +897,9 @@ static int OLED_DrawPage(const GPS_Position *GPS)
     case OLED_Page_Baro:      OLED_DrawBaro      (OLED.getU8g2(), GPS); break;
     case OLED_Page_RF:        OLED_DrawRF        (OLED.getU8g2(), GPS); break;
     case OLED_Page_RFcounts:  OLED_DrawRFcounts  (OLED.getU8g2(), GPS); break;
+#if 0 && defined(WITH_TASK_STATS) // Temporarily hide the incomplete OLED task-status page.
+    case OLED_Page_TaskStats: OLED_DrawTaskStats  (OLED.getU8g2(), GPS); break;
+#endif
     case OLED_Page_Power:     OLED_DrawPower     (OLED.getU8g2(), GPS); break;
     case OLED_Page_RelayOGN:  OLED_DrawRelayOGN  (OLED.getU8g2(), GPS); break;
     case OLED_Page_RelayADSL: OLED_DrawRelayADSL (OLED.getU8g2(), GPS); break;
@@ -1023,6 +1038,12 @@ void OLED_Task(void *Parms)
     if(OLED_PageChange)
     { OLED_PageChange=false;
       if(OLED_DrawPage(GPS)==0) OLED_NextPage(); }
+#if 0 && defined(WITH_TASK_STATS) // Temporarily hide the incomplete OLED task-status page.
+    if((int32_t)(millis()-TaskStatsUpdateTime)>=0)
+    { TaskStats_Update();
+      TaskStatsUpdateTime=millis()+10000;
+      if(OLED_Page==OLED_Page_TaskStats) OLED_PageChange=true; }
+#endif
     vTaskDelay(50);
   }
 }
@@ -1325,6 +1346,28 @@ void OLED_DrawRFcounts(u8g2_t *OLED, const GPS_Position *GPS)
 //   u8g2_DrawStr(OLED, 0, Vert, Line); Vert+=9;
 // #endif
 }
+
+#ifdef WITH_TASK_STATS
+static const TaskStats_Record *OLED_FindTaskStats(const TaskStats_Record *Records, uint8_t Count, const char *Name)
+{ for(uint8_t Idx=0; Idx<Count; Idx++)
+  { const TaskStats_Record *Record=Records+Idx;
+    if(strcmp(Record->Name, Name)==0) return Record; }
+  return 0; }
+
+void OLED_DrawTaskStats(u8g2_t *OLED, const GPS_Position *GPS)
+{ (void)GPS;
+  static const char *const Names[] = { "loop", "GPS", "RF", "PROC", "LOG", "OLED" };
+  TaskStats_Record Records[16];
+  uint8_t Count=TaskStats_Copy(Records, 16);
+  char Line[32];
+  u8g2_SetFont(OLED, u8g2_font_5x8_tr);
+  for(uint8_t Idx=0; Idx<sizeof(Names)/sizeof(Names[0]); Idx++)
+  { const TaskStats_Record *Record=OLED_FindTaskStats(Records, Count, Names[Idx]);
+    if(Record) sprintf(Line, "%-4s %3u%% %5u", Names[Idx], Record->CPU, Record->StackFree);
+    else      sprintf(Line, "%-4s ---   ---", Names[Idx]);
+    u8g2_DrawStr(OLED, 0, 16+8*Idx, Line); }
+}
+#endif
 
 void OLED_DrawRelayOGN(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[32];
