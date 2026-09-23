@@ -499,10 +499,6 @@ void setup()
   Button_Init();
 #endif
 #ifdef WITH_INTERNAL_FS
-#ifdef WITH_LORAWAN
-  LoRaWANnode SavedWAN;
-  bool SavedWANValid=false;
-#endif
   bool InternalFSReady=InternalFS.begin();
   if(!InternalFSReady)
   { if(InternalFS.format()) InternalFSReady=InternalFS.begin(); }
@@ -512,20 +508,10 @@ void setup()
   HardwareStatus.SPIFFS = LogFS_begin();
 #ifdef WITH_INTERNAL_FS
   int ParameterRead=InternalFSReady ? Parameters.ReadFromNVS() : -2;
-  if(ParameterRead < -1 && InternalFSReady)
-  { // A bad or obsolete parameter record can make the FS unreadable; reformat and recover defaults.
-#ifdef WITH_LORAWAN
-    // Keep a valid LoRaWAN registration while recovering the parameter file.
-    SavedWAN.Reset(getUniqueID());
-    SavedWANValid = SavedWAN.ReadFromNVS()>=0;
-#endif
-    InternalFSReady=InternalFS.format();
-    if(InternalFSReady) InternalFSReady=InternalFS.begin();
-#ifdef WITH_LORAWAN
-    if(InternalFSReady && SavedWANValid) SavedWAN.WriteToNVS();
-#endif
-    ParameterRead=-1; }
-  if(ParameterRead<0)                         // use defaults if parameters are absent or invalid
+  // ReadFromNVS checks both the exact record size and the checksum.  An absent,
+  // obsolete, or corrupt parameter record must not destroy other files such as
+  // the LoRaWAN state; replace only the parameter record with defaults.
+  if(ParameterRead<0)
   { Parameters.setDefault(getUniqueAddress());
     if(InternalFSReady) Parameters.WriteToNVS(); }
 #else

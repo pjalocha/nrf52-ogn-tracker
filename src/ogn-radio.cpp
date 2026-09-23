@@ -1481,6 +1481,7 @@ void Radio_Task(void *Parms)
     static uint8_t WAN_RxWindow=0;                    // 0:none, 1:RX1, 2:RX2
     static uint8_t  WAN_BackOff=60;                   // [sec]
     bool WANtx = 0;
+    bool WAN_SaveNeeded = 0;
     if(WAN_BackOff) WAN_BackOff--;
     else if(WANdev.Enable && Parameters.TxWAN && Radio_FreqPlan.Plan<=1) // decide to transmit in this slot
     { if(WANdev.State==0 || WANdev.State==2) WANtx=1; } //
@@ -1532,6 +1533,7 @@ void Radio_Task(void *Parms)
       if(WANdev.State==0)                                             // if not joined yet
       { uint8_t *TxPacket; TxPktLen=WANdev.getJoinRequest(&TxPacket); // produce Join-Request packet
         Radio_TxLoRaWAN(TxPacket, TxPktLen); WANdev.TxCount++;
+        WANdev.WriteToNVS();                                         // persist DevNonce before the next possible reboot
         RespDelay=5000;          // transmit join-request packet
         WAN_BackOff=50+(Random.Word%19); XorShift64(Random.Word);
       } else if(WANdev.State==2)                                      // if joined the network
@@ -1548,6 +1550,7 @@ void Radio_Task(void *Parms)
           else
           { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData, 20, 1, ((Random.RX>>16)&0xF)==0x8 ); }
           Radio_TxLoRaWAN(TxPacket, TxPktLen);
+          WANdev.WriteToNVS();                                       // persist the uplink frame counter
           RespDelay = WANdev.getRxDelaySeconds()*1000;
           WAN_BackOff=50+(Random.Word%19);
           XorShift64(Random.Word);
@@ -1598,7 +1601,8 @@ void Radio_Task(void *Parms)
           WANdev.LastRx=TimeSync_Time(); } }
       if(WANaccepted)
       { WAN_RxWindow=0;
-        WANdev.RxSilent=0; }
+        WANdev.RxSilent=0;
+        WAN_SaveNeeded=1; }
       else if(WAN_RxWindow==1)                                 // no valid RX1: try RX2 one second later
       { WAN_RxWindow=2;
         WAN_RespTick+=1000; }
@@ -1614,7 +1618,8 @@ void Radio_Task(void *Parms)
       if(WANdev.State==2 && WANdev.TxConfirm)                  // only count a missed confirmed data probe, not join attempts or unconfirmed uplinks
       { WANdev.RxSilent++;
         if(WANdev.RxSilent>=60) WANdev.Disconnect(); } }
-    WANdev.WriteToNVS();                                 // store new WAN state in flash
+    if(WANmissed) WAN_SaveNeeded=1;
+    if(WAN_SaveNeeded) WANdev.WriteToNVS();                  // store changed WAN RX state in flash
 #endif
 
     Radio_PktRate += Radio_PktUpdate*(PktCount-Radio_PktRate);
