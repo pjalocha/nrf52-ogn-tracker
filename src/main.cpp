@@ -596,16 +596,16 @@ void setup()
 #endif
 
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
-  xTaskCreate(Radio_Task  ,  "RF"   ,  1200, NULL, 2, NULL);  // transmit/receive packets
+  xTaskCreate(Radio_Task  ,  "RF"   ,  1000, NULL, 2, NULL);  // transmit/receive packets
   xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 1, NULL);  // process received packets, prepare packets for transmission
 #ifdef WITH_LOG
-  xTaskCreate(vTaskLOG    ,  "LOG"  ,  3000, NULL, 0, NULL);  // write received and own packets to external flash
+  xTaskCreate(vTaskLOG    ,  "LOG"  ,  1500, NULL, 0, NULL);  // write received and own packets to external flash
 #endif
 #ifdef WITH_EPAPER
-  xTaskCreate(EPD_Task    ,  "EPD"  ,  3000, NULL, 0, NULL);  // update e-paper display
+  xTaskCreate(EPD_Task    ,  "EPD"  ,  2000, NULL, 0, NULL);  // update e-paper display
 #endif
 #ifdef WITH_OLED
-  xTaskCreate(OLED_Task   ,  "OLED" ,  2000, NULL, 0, NULL);  // update OLED display
+  xTaskCreate(OLED_Task   ,  "OLED" ,  1000, NULL, 0, NULL);  // update OLED display
 #endif
 
 }

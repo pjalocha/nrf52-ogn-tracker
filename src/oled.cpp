@@ -1460,39 +1460,26 @@ void OLED_DrawLogPage(u8g2_t *OLED, const GPS_Position *GPS)
 
 void OLED_DrawPower(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[32];
-  u8g2_SetFont(OLED, u8g2_font_7x13_tf);              // 5 lines, 12 pixels/line
-  uint8_t Len=Format_String(Line, " USB       Batt ");
-  Line[Len]=0;
-  u8g2_DrawStr(OLED, 0, 24, Line);
-  int16_t BattVolt=(BatteryVoltage+128)>>8; // [mV] measured and averaged  battery voltage
-  Len=Format_SignDec(Line, (int32_t)BattVolt, 4, 3); Line[Len++]='V'; Line[Len]=0;
+  int16_t BattVolt=(BatteryVoltage+128)>>8;          // [mV] measured and averaged battery voltage
+  int8_t BattLev=BattCapacity(BattVolt);             // [%] estimated battery capacity
+
+  // Large battery symbol on the left half of the 128x64 OLED.
+  const int16_t X=12, Y=20, W=32, H=44;
+  u8g2_DrawFrame(OLED, X, Y, W, H);
+  u8g2_DrawBox(OLED, X+W/2-7, Y-5, 14, 5);
+  if(BattLev>=0)
+  { int16_t FillH=(BattLev*(H-6)+50)/100;
+    if(FillH>0) u8g2_DrawBox(OLED, X+3, Y+H-3-FillH, W-6, FillH); }
+
+  // Battery percentage, voltage, voltage rate, and MCU temperature on the right.
+  u8g2_SetFont(OLED, u8g2_font_7x13_tf);
+  if(BattLev>=0) sprintf(Line, "%3d%%", BattLev);
+           else sprintf(Line, " --%%");
+  u8g2_DrawStr(OLED, 68, 24, Line);
+
+  uint8_t Len=Format_SignDec(Line, (int32_t)BattVolt, 4, 3);
+  Line[Len++]='V'; Line[Len]=0;
   u8g2_DrawStr(OLED, 64, 36, Line);
-#ifdef WITH_AXP
-  if(HardwareStatus.AXP192 || HardwareStatus.AXP202)
-  { if(xSemaphoreTake(I2C_Mutex, 10))
-    { sprintf(Line, "%5.3fV", 0.001f*AXP.getVbusVoltage());
-      u8g2_DrawStr(OLED,  0, 36, Line);
-      sprintf(Line, "%5.3fA", 0.001f*AXP.getVbusCurrent());
-      u8g2_DrawStr(OLED,  0, 48, Line);
-      int32_t BattCurr = AXP.getBattChargeCurrent()-AXP.getBattDischargeCurrent();
-      sprintf(Line, "%5.3fA", 0.001f*BattCurr);
-      u8g2_DrawStr(OLED, 64, 48, Line);
-      // int BattLev = PMU->getBattPercent(); // only AXP202
-      xSemaphoreGive(I2C_Mutex); }
-  }
-#endif
-#ifdef WITH_XPOWERS
-  if(HardwareStatus.AXP192 || HardwareStatus.AXP210)
-  { if(xSemaphoreTake(I2C_Mutex, 10))
-    { sprintf(Line, "%5.3fV", 0.001f*PMU->getVbusVoltage());
-      u8g2_DrawStr(OLED,  0, 36, Line);
-      int BattLev = PMU->getBatteryPercent();
-      if(BattLev>=0) sprintf(Line, "   %3d%%", BattLev);
-               else  sprintf(Line, "   ---%%");
-      u8g2_DrawStr(OLED, 64, 48, Line);
-      xSemaphoreGive(I2C_Mutex); }
-  }
-#endif // WITH_XPOWERS
 
   u8g2_SetFont(OLED, u8g2_font_6x12_tr);
   sprintf(Line, "%+4.1fmV/min", 0.1f*((600*BatteryVoltageRate+128)>>8));
