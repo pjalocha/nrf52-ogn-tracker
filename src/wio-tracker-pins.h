@@ -34,6 +34,8 @@
 #define Radio_PinBusy _PINNUM(1, 10) // BUSY
 #define Radio_PinRXEN _PINNUM(1,  8) // RF switch RX enable
 #define Radio_PinTXEN Pin_NotUsed
+#define Radio_DIO2AsRfSwitch         // SX1262 DIO2 controls the RF switch
+#define Radio_TCXO_Voltage 1.8 // SX1262 DIO3 TCXO voltage
 
 // I2C / OLED
 #define I2C_PinSDA    _PINNUM(0, 6) // SDA

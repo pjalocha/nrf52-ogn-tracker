@@ -100,17 +100,12 @@ static bool Radio_IRQ(void) { return digitalRead(Radio_PinIRQ1); }
  int8_t  Radio_ChipTemperature = -128;
 
 // =======================================================================================================
-// this switch in present in Wio-Tracker, not sure about other devices
-
-#ifdef Radio_PinRXEN
-static void Radio_RXEN(bool ON=1) { digitalWrite(Radio_PinRXEN, ON); }
-#else
-static void Radio_RXEN(bool ON=1) { }
-#endif
-
-// =======================================================================================================
 
 #ifdef WITH_SX1262
+#ifndef Radio_TCXO_Voltage
+#define Radio_TCXO_Voltage 1.6
+#endif
+
 #define WITH_RADIO_CACHE
 #endif
 
@@ -476,7 +471,7 @@ static int ManchEncode(uint8_t *Out, const uint8_t *Inp, uint8_t InpLen) // Enco
 
 #ifdef WITH_SX1262
 static int Radio_TxFSK(const uint8_t *Packet, uint8_t Len)
-{ Radio_RXEN(0);
+{
   uint32_t msDead=millis();
   uint32_t usTxTime=Radio.getTimeOnAir(Len);                             // [usec]
   Radio_TxCredit-=usTxTime/1000;
@@ -826,7 +821,6 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
   Radio.standby();
   Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);       // configure for reception
   Radio_setFrequency(RxFreq);                                       // set frequency
-  Radio_RXEN(1);
   Radio.startReceive();                                             // start receiving
   XorShift64(Random.Word);                                          // randomize
   if(TxPacket)                                                      // if there is packet to be sent out
@@ -858,7 +852,6 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
     Radio.standby();
     Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);        // configure for reception
     Radio_setFrequency(RxFreq);                                        //
-    Radio_RXEN(1);
     Radio.startReceive();
     if(Parameters.Verbose>=2)
     { uint32_t msTime = millis()-GPS_TimeSync.sysTime;
@@ -924,7 +917,7 @@ static void Radio_ConfigLoRa(float BW, uint8_t SF, uint8_t PreambleLen, uint8_t 
 static void Radio_ConfigMESHT(uint8_t CRa=1) { Radio_ConfigLoRa(250.0f, 7, 16, 0x2B, CRa); } // 8 preamble symbols, SYNC=0x2B
 
 static void Radio_TxMESHT(MESHT_Packet &Packet)           // transmit a MESHT packet
-{ Radio_RXEN(0);
+{
   uint32_t msDead=millis();
   Radio.transmit(Packet.Byte, Packet.Len);                // not clear, if we should wait here for the transmission to complete ?
   uint32_t usTxTime=Radio.getTimeOnAir(Packet.Len);       // [usec]
@@ -982,7 +975,6 @@ static int Radio_RxFANET(uint32_t msTimeLen, TimeSync &TimeRef)    // FANET rece
 static void Radio_TxFANET(FANET_Packet &Packet)                    // transmit a FANET packet
 { // Serial.printf("FNT Tx[%d] %06X\n", Packet.Len, Packet.getAddr());
   uint32_t msDead = millis();
-  Radio_RXEN(0);
   Radio.transmit(Packet.Byte, Packet.Len); Packet.Done=1;          // not clear, if we should wait here for the transmission to complete ?
   uint32_t usTxTime=Radio.getTimeOnAir(Packet.Len);                // [usec]
   Radio_TxCredit-=usTxTime/1000;
@@ -1031,7 +1023,6 @@ static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeL
   Radio.standby();
   Radio_ConfigFANET(BW);                               // setup for FANET, includes switching from FSK to LoRa
   Radio_setFrequency(Freq);                          // set frequency
-  Radio_RXEN(1);
   Radio.startReceive();                                   // start receiving
   XorShift64(Random.Word);                           // randomize
   int PktCount=0;
@@ -1095,7 +1086,6 @@ static void Radio_LoRaWANApplyRegister(void)
 
 static uint32_t Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
 { // Serial.printf("WAN Tx[%d]\n", PktLen);
-  Radio_RXEN(0);
 #ifdef WITH_LORAWAN_DEBUG
   uint32_t Start=millis();
 #endif
@@ -1112,7 +1102,6 @@ static uint32_t Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
 static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLen, float *RSSI=0, float *SNR=0, float *FreqOfs=0)
 { uint32_t msStart=millis();
   // Serial.printf("RxLoRaWAN(%dms)\n", msTimeLen);
-  Radio_RXEN(1);
   Radio.startReceive();
 #ifdef WITH_LORAWAN_DEBUG
   printf("LoRaWAN RX start=%lu max=%lu irq=%d\n",
@@ -1292,7 +1281,7 @@ void Radio_Task(void *Parms)
   Radio_ChipTemperature = Radio.getTempRaw()+Parameters.RFchipTempCorr;
 #endif
 #ifdef WITH_SX1262
-  int State = Radio.beginFSK(868.2,          100.0,           50.0,        234.3,            0,              8,           1.6,         0);
+  int State = Radio.beginFSK(868.2,          100.0,           50.0,        234.3,            0,              8,           Radio_TCXO_Voltage, 0);
   if(State==0) Radio_Cache_Clear();
   //                     Freq[MHz], Bit-rate[kbps], Freq.dev.[kHz], RxBand.[kHz], TxPower[dBm], preamble[bits], TXCO volt.[V], use LDO[bool]
   // Serial.printf("Radio.begin() => %d\n", State);
@@ -1300,12 +1289,16 @@ void Radio_Task(void *Parms)
                           // else LED_OGN_Red();
   State = Radio.setFrequency(1e-6*Radio_FreqPlan.BaseFreq, 1); // calibrate
   if(State==0) Radio_Cache_Clear();
-  Radio.setTCXO(1.6);
-#ifdef Radio_PinRXEN                  // Wio-Tracker needs to control TX/RX switch explicitely
-  pinMode(Radio_PinRXEN, OUTPUT);
-  Radio_RXEN(1);
+  Radio.setTCXO(Radio_TCXO_Voltage);
+#ifdef Radio_DIO2AsRfSwitch
+  Radio.setDio2AsRfSwitch();
+#endif
+#ifdef Radio_PinRXEN
+#ifdef Radio_PinTXEN
+  Radio.setRfSwitchPins(Radio_PinRXEN, Radio_PinTXEN);
 #else
-  Radio.setDio2AsRfSwitch();          // this is for "normal" modules, not sure if this should be set for Wio-Tracker ?
+  Radio.setRfSwitchPins(Radio_PinRXEN, RADIOLIB_NC);
+#endif
 #endif
   // Radio.setDio1Action(IRQcall);
 #endif
@@ -1366,7 +1359,6 @@ void Radio_Task(void *Parms)
     { float BW=250.0f; if(Radio_FreqPlan.Plan>1) BW=500.0f;      // for plans 2,3 and 4 bandwidth 500kHz
       Radio_ConfigFANET(BW);
       Radio_setFrequency(1e-6*FreqFNT);
-      Radio_RXEN(1);
       Radio.startReceive();
       for( ; ; )
       { PktCount+=Radio_FANETrxPacket(TimeRef);                  // any packet received ?
@@ -1402,7 +1394,6 @@ void Radio_Task(void *Parms)
       Radio.standby();
       Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);
       Radio_setFrequency(RxFreq);
-      Radio_RXEN(1);
       Radio.startReceive();
       uint32_t msLive = millis();
       for( ; ; )

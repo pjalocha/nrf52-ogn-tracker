@@ -26,6 +26,7 @@
 #define Radio_PinCS   _PINNUM(0, 24) // CS/NSS
 #define Radio_PinIRQ1 _PINNUM(0, 20) // DIO1/IRQ
 #define Radio_PinBusy _PINNUM(0, 17) // BUSY
+#define Radio_DIO2AsRfSwitch         // SX1262 DIO2 controls the RF switch
 
 #define Radio_PinDIO0_REV0 Pin_NotUsed
 #define Radio_PinDIO0_REV1 _PINNUM(1,  1)
