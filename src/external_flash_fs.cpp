@@ -148,6 +148,11 @@ bool LogFS_begin(void)
   return LogFSMounted;
 }
 
+bool LogFS_isDetected(void)
+{
+  return ExternalFlashBegun;
+}
+
 bool LogFS_isMounted(void)
 {
   return LogFSMounted;

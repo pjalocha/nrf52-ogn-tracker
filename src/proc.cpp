@@ -1046,7 +1046,9 @@ void vTaskPROC(void* pvParameters)
   // OGN_TxPacket<OGN_Packet> InfoPacket;                                 // information packet
 
   for( ; ; )
-  { vTaskDelay(1);
+  {
+    TaskWatchdog_Heartbeat(TaskWatchdog_PROC);
+    vTaskDelay(1);
 
     for( ; ; )
     { FSK_RxPacket *RxPkt = FSK_RxFIFO.getRead();                        // check for new received packets

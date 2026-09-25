@@ -987,6 +987,7 @@ void OLED_Task(void *Parms)
   GPS_Position *PrevGPS=0;
   for( ; ; )
   {
+    TaskWatchdog_Heartbeat(TaskWatchdog_OLED);
     uint32_t Events=0;
     xTaskNotifyWait(0, 0xFFFFFFFF, &Events, 0);
 #if defined(WITH_WIO_TRACKER)
@@ -1433,7 +1434,12 @@ void OLED_DrawLogPage(u8g2_t *OLED, const GPS_Position *GPS)
 
   if(!LogFS_isMounted())
   { u8g2_DrawStr(OLED, 0, 39, "External flash");
-    u8g2_DrawStr(OLED, 0, 48, "not mounted");
+    if(LogFS_isDetected())
+    { u8g2_DrawStr(OLED, 0, 48, "not mounted");
+      u8g2_DrawStr(OLED, 0, 57, "Please format flash"); }
+    else
+    { u8g2_DrawStr(OLED, 0, 48, "not detected");
+      u8g2_DrawStr(OLED, 0, 57, "Check hardware"); }
     return; }
 
   uint32_t Total=0, Free=0;

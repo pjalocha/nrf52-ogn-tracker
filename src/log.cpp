@@ -349,7 +349,9 @@ extern "C" void vTaskLOG(void* pvParameters)
   uint8_t StorageUpdateRequest = FlashLog_StorageUpdateRequest;
   static bool PrevFlying = 0;
   for( ; ; )
-  { vTaskDelay(1);
+  {
+    TaskWatchdog_Heartbeat(TaskWatchdog_LOG);
+    vTaskDelay(1);
     uint32_t Now=millis();
     bool StorageUpdateRequested=FlashLog_StorageUpdateRequest!=StorageUpdateRequest;
     if(StorageUpdateRequested) StorageUpdateRequest=FlashLog_StorageUpdateRequest;

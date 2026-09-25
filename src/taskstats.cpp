@@ -100,8 +100,8 @@ void TaskStats_Print(void)
   TaskStats_Update();
   TaskStats_Record Records[TaskStats_MaxTasks];
   uint8_t Count=TaskStats_Copy(Records, TaskStats_MaxTasks);
-  Serial.printf("Task statistics: %lu ms, %u tasks\n",
-                (unsigned long)(TaskStats_WindowUS()/1000), Count);
+  Serial.printf("%u tasks over %3.1fs\n",
+                Count, 1e-6f*TaskStats_WindowUS());
   Serial.println("Task       CPU  stack-free(words)");
   for(uint8_t Idx=0; Idx<Count; Idx++)
   { const TaskStats_Record *Record=Records+Idx;

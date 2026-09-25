@@ -1137,7 +1137,9 @@ void vTaskGPS(void* pvParameters)
 
   TickType_t RefTick = xTaskGetTickCount();
   for( ; ; )                                                              // main task loop: every milisecond (RTOS time tick)
-  { // vTaskDelay(1);                                                        // wait for the next time tick (but apparently it can wait more than one OS tick)
+  {
+    TaskWatchdog_Heartbeat(TaskWatchdog_GPS);
+    // vTaskDelay(1);                                                        // wait for the next time tick (but apparently it can wait more than one OS tick)
     TickType_t NewTick = xTaskGetTickCount();
     TickType_t Delta = NewTick-RefTick;
     RefTick = NewTick;

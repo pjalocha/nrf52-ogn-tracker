@@ -1086,11 +1086,13 @@ static void Radio_LoRaWANApplyRegister(void)
 
 static uint32_t Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
 { // Serial.printf("WAN Tx[%d]\n", PktLen);
+  uint32_t msDead=millis();
 #ifdef WITH_LORAWAN_DEBUG
   uint32_t Start=millis();
 #endif
   int State=Radio.transmit(Packet, PktLen);
   uint32_t Done=millis();
+  Radio_msDeadTime += Done-msDead;
 #ifdef WITH_LORAWAN_DEBUG
   printf("LoRaWAN TX len=%u start=%lu end=%lu dur=%lu result=%d\n",
          PktLen, (unsigned long)Start, (unsigned long)Done,
@@ -1115,6 +1117,7 @@ static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLe
     if(Radio_IRQ()) break; }                        // break, when packet arrives
   if(!Radio_IRQ())
   {
+    Radio_msLiveTime += millis()-msStart;
 #ifdef WITH_LORAWAN_DEBUG
     printf("LoRaWAN RX timeout t=%lu\n", (unsigned long)millis());
 #endif
@@ -1122,11 +1125,14 @@ static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLe
   }
   int PktLen    = Radio.getPacketLength();          // [bytes]
   // Serial.printf("RxLoRaWAN: [%d]\n", PktLen);
-  if(PktLen<=0 || PktLen>MaxPktLen) return 0;
+  if(PktLen<=0 || PktLen>MaxPktLen)
+  { Radio_msLiveTime += millis()-msStart;
+    return 0; }
   if(RSSI)    *RSSI    = Radio.getRSSI();           // [dBm]
   if(SNR)     *SNR     = Radio.getSNR();            // [dB]
   if(FreqOfs) *FreqOfs = Radio.getFrequencyError(); // [Hz]
   Radio.readData(Packet, PktLen);
+  Radio_msLiveTime += millis()-msStart;
 #ifdef WITH_LORAWAN_DEBUG
   printf("LoRaWAN RX packet len=%d t=%lu RSSI=%.1f SNR=%.1f\n",
          PktLen, (unsigned long)millis(), RSSI ? *RSSI : 0.0f, SNR ? *SNR : 0.0f);
@@ -1185,7 +1191,6 @@ const int Slot2_End   = 1200; // [ms]
 
 void Radio_Task(void *Parms)
 {
-
   Radio_FreqPlan.setPlan(Parameters.FreqPlan);
 
 #ifdef WITH_LORAWAN
@@ -1314,6 +1319,7 @@ void Radio_Task(void *Parms)
 
   for( ; ; )                                                      // main task loop: infinite
   {
+    TaskWatchdog_Heartbeat(TaskWatchdog_RF);
 #ifdef WITH_LORAWAN
     Radio_LoRaWANApplyRegister();
 #endif
@@ -1512,7 +1518,8 @@ void Radio_Task(void *Parms)
     SlotLen = Slot2_End-msTime;
     bool WANnearRx = 0;
 #ifdef WITH_LORAWAN
-    static uint8_t WAN_RxPacket[64];                  //
+    static uint8_t WAN_RxPacket[LoRaWANnode::MaxPacketSize]; // keep the buffer in
+                                                            // step with LoRaWANnode::Packet
     static uint32_t WAN_RespTick=0;                   // [msec]
     static uint8_t WAN_RxWindow=0;                    // 0:none, 1:RX1, 2:RX2
     static uint8_t  WAN_BackOff=60;                   // [sec]
@@ -1569,8 +1576,14 @@ void Radio_Task(void *Parms)
       uint32_t WAN_TxDone=0;
       if(WANdev.State==0)                                             // if not joined yet
       { uint8_t *TxPacket; TxPktLen=WANdev.getJoinRequest(&TxPacket); // produce Join-Request packet
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN join: TX request len=%d t=%lu\n", TxPktLen, (unsigned long)millis());
+#endif
         WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen); WANdev.TxCount++;
-        WANdev.WriteToNVS();                                         // persist DevNonce before the next possible reboot
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN join: TX complete t=%lu\n", (unsigned long)WAN_TxDone);
+#endif
+        WANdev.WriteToNVS();                                          // persist DevNonce
         RespDelay=5000;          // transmit join-request packet
         WAN_BackOff=50+(Random.Word%19); XorShift64(Random.Word);
       } else if(WANdev.State==2)                                      // if joined the network
@@ -1635,14 +1648,25 @@ void Radio_Task(void *Parms)
              (long)msMaxTime);
 #endif
       float RSSI=0; float SNR=0; float FreqOfs=0;
-      int RxLen=Radio_RxLoRaWAN(WAN_RxPacket, 64, msMaxTime, &RSSI, &SNR, &FreqOfs);
+      int RxLen=Radio_RxLoRaWAN(WAN_RxPacket, sizeof(WAN_RxPacket), msMaxTime, &RSSI, &SNR, &FreqOfs);
 #ifdef WITH_LORAWAN_DEBUG
       printf("LoRaWAN RX%u result len=%d now=%lu\n",
              WAN_RxWindow, RxLen, (unsigned long)millis());
 #endif
       bool WANaccepted=0;
       if(RxLen>0)
-      { if(WANdev.State==1) WANaccepted=(WANdev.procJoinAccept(WAN_RxPacket, RxLen)==0);
+      {
+        if(WANdev.State==1)
+        {
+#ifdef WITH_LORAWAN_DEBUG
+          printf("LoRaWAN join: processing RX len=%d t=%lu\n", RxLen, (unsigned long)millis());
+#endif
+          int JoinResult=WANdev.procJoinAccept(WAN_RxPacket, RxLen);
+#ifdef WITH_LORAWAN_DEBUG
+          printf("LoRaWAN join: processing returned %d state=%u t=%lu\n", JoinResult, WANdev.State, (unsigned long)millis());
+#endif
+          WANaccepted=(JoinResult==0);
+        }
         else if(WANdev.State==3) { WANdev.procRxData(WAN_RxPacket, RxLen); WANaccepted=(WANdev.State==2); }
         if(WANaccepted)
         { WANdev.RxCount++;
@@ -1669,7 +1693,10 @@ void Radio_Task(void *Parms)
       { WANdev.RxSilent++;
         if(WANdev.RxSilent>=60) WANdev.Disconnect(); } }
     if(WANmissed) WAN_SaveNeeded=1;
-    if(WAN_SaveNeeded) WANdev.WriteToNVS();                  // store changed WAN RX state in flash
+    if(WAN_SaveNeeded)
+    {
+      WANdev.WriteToNVS();
+    }
 #endif
 
     Radio_PktRate += Radio_PktUpdate*(PktCount-Radio_PktRate);

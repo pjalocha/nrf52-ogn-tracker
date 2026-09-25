@@ -596,8 +596,8 @@ void setup()
 #endif
 
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
-  xTaskCreate(Radio_Task  ,  "RF"   ,  1000, NULL, 2, NULL);  // transmit/receive packets
-  xTaskCreate(vTaskPROC   ,  "PROC" ,  1200, NULL, 1, NULL);  // process received packets, prepare packets for transmission
+  xTaskCreate(Radio_Task  ,  "RF"   ,  1500, NULL, 2, NULL);  // transmit/receive packets
+  xTaskCreate(vTaskPROC   ,  "PROC" ,  1500, NULL, 1, NULL);  // process received packets, prepare packets for transmission
 #ifdef WITH_LOG
   xTaskCreate(vTaskLOG    ,  "LOG"  ,  1500, NULL, 0, NULL);  // write received and own packets to external flash
 #endif
@@ -607,6 +607,21 @@ void setup()
 #ifdef WITH_OLED
   xTaskCreate(OLED_Task   ,  "OLED" ,  1000, NULL, 0, NULL);  // update OLED display
 #endif
+
+  uint32_t WatchdogTasks = TaskWatchdog_Bit(TaskWatchdog_Loop) |
+                           TaskWatchdog_Bit(TaskWatchdog_GPS)  |
+                           TaskWatchdog_Bit(TaskWatchdog_RF)   |
+                           TaskWatchdog_Bit(TaskWatchdog_PROC);
+#ifdef WITH_LOG
+  WatchdogTasks |= TaskWatchdog_Bit(TaskWatchdog_LOG);
+#endif
+#ifdef WITH_EPAPER
+  WatchdogTasks |= TaskWatchdog_Bit(TaskWatchdog_EPD);
+#endif
+#ifdef WITH_OLED
+  WatchdogTasks |= TaskWatchdog_Bit(TaskWatchdog_OLED);
+#endif
+  TaskWatchdog_Start(WatchdogTasks);
 
 }
 
@@ -765,6 +780,12 @@ static void ProcessCtrlL(void)
 static void ProcessCtrlS(void)
 { if(!xSemaphoreTake(CONS_Mutex, 100)) return;
   TaskStats_Print();
+  uint32_t RadioTime=Radio_msLiveTime+Radio_msDeadTime;
+  uint32_t RadioLivePercent=RadioTime ? (uint32_t)((100ULL*Radio_msLiveTime+RadioTime/2)/RadioTime) : 0;
+  uint32_t RadioDeadPercent=RadioTime ? (uint32_t)((100ULL*Radio_msDeadTime+RadioTime/2)/RadioTime) : 0;
+  Serial.printf("Radio live: %lums, dead: %lums (%lu%%+%lu%%)\n",
+                (unsigned long)Radio_msLiveTime, (unsigned long)Radio_msDeadTime,
+                (unsigned long)RadioLivePercent, (unsigned long)RadioDeadPercent);
   xSemaphoreGive(CONS_Mutex); }
 #endif
 
@@ -821,7 +842,9 @@ static int ProcessInput(void)
   return Count; }
 
 void loop()
-{ vTaskDelay(1);
+{
+  TaskWatchdog_Heartbeat(TaskWatchdog_Loop);
+  vTaskDelay(1);
 #ifdef WITH_BEEPER
   Play_TimerCheck(1);              // handle playing notes on the buzzer
 #endif

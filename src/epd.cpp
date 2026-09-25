@@ -687,7 +687,9 @@ void EPD_Task(void *Parms)
   EPD_DrawID();
 
   for( ; ; )
-  { vTaskDelay(100);
+  {
+    TaskWatchdog_Heartbeat(TaskWatchdog_EPD);
+    vTaskDelay(100);
     EPD_BacklightCheck();
     EPD_UpdateID();                  // this can take seconds (occasionally)
     EPD_BacklightCheck();

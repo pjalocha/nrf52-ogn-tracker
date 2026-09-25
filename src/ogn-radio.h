@@ -59,6 +59,8 @@ extern QueueHandle_t Radio_SlotMsg;   // to tell the Radio_Task about the new ti
 
 extern uint32_t Radio_TxCount[8];     // transmitted packet counters
 extern uint32_t Radio_RxCount[12];     // received packet counters
+extern uint32_t Radio_msLiveTime;      // [ms] time spent receiving
+extern uint32_t Radio_msDeadTime;      // [ms] time spent reconfiguring/transmitting
 extern  int32_t Radio_TxCredit;
 extern float    Radio_BkgRSSI;        // [dBm] background noise seen by the receiver
 extern float    Radio_PktRate;        // [Hz]
