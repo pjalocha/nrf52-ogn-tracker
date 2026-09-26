@@ -10,6 +10,7 @@
 #include <math.h>
 
 #include "taskwatchdog.h"
+#include "usb_memory.h"
 
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
@@ -25,7 +26,7 @@ const uint8_t KNOB_Tick = 15;
 #ifndef VERSION
 // Release builds override this through scripts/version.py; keep a useful
 // value for ordinary untagged local builds.
-#define VERSION "0.1.40"
+#define VERSION "0.1.41"
 #endif
 
 #ifndef SOFT_NAME

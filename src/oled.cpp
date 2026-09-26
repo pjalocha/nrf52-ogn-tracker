@@ -111,6 +111,9 @@ enum OLED_MenuState
   OLED_MenuTextEdit,
   OLED_MenuFormatConfirm,
   OLED_MenuDefaultsConfirm,
+#ifdef WITH_USB_MEMORY
+  OLED_MenuUSBConfirm,
+#endif
 #ifdef WITH_LORAWAN
   OLED_MenuTTNConfirm,
   OLED_MenuQR
@@ -140,6 +143,9 @@ static uint32_t OLED_MenuMessageTime = 0;
 static const char *OLED_MenuMessage = 0;
 
 static const uint8_t OLED_MenuItems = 11
+#ifdef WITH_USB_MEMORY
+  + 1
+#endif
 #ifdef WITH_LORAWAN
   + 1
 #endif
@@ -344,8 +350,17 @@ static void OLED_MenuEnterItem(void)
     case 10:
       OLED_Menu=OLED_MenuDefaultsConfirm;
       break;
-#ifdef WITH_LORAWAN
+#ifdef WITH_USB_MEMORY
     case 11:
+      OLED_Menu=OLED_MenuUSBConfirm;
+      break;
+#endif
+#ifdef WITH_LORAWAN
+    case 11
+#ifdef WITH_USB_MEMORY
+      + 1
+#endif
+      :
       OLED_Menu=OLED_MenuTTNConfirm;
       break;
 #endif
@@ -540,6 +555,16 @@ static void OLED_MenuHandleEvent(uint32_t Event)
   { if(OLED_Menu==OLED_MenuClosed) OLED_MenuOpen();
     else if(OLED_Menu==OLED_MenuFormatConfirm) OLED_MenuFormatFlash();
     else if(OLED_Menu==OLED_MenuDefaultsConfirm) OLED_MenuResetDefaults();
+#ifdef WITH_USB_MEMORY
+    else if(OLED_Menu==OLED_MenuUSBConfirm)
+    { if(USBMemory_Enter())
+      { OLED_Menu=OLED_MenuClosed;
+        OLED_MenuMessage=0; }
+      else
+      { OLED_MenuShowMessage("Flash unavailable", -1);
+        OLED_Menu=OLED_MenuList;
+        OLED_PageChange=true; } }
+#endif
 #ifdef WITH_LORAWAN
     else if(OLED_Menu==OLED_MenuTTNConfirm) OLED_MenuRegisterTTN();
 #endif
@@ -705,6 +730,9 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
   if(OLED_Menu==OLED_MenuList)
   { static const char *ItemNames[OLED_MenuItems] =
     { "AcftType", "AddrType", "Address", "Tx power", "Warn time", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults"
+#ifdef WITH_USB_MEMORY
+      , "USB memory"
+#endif
 #ifdef WITH_LORAWAN
       , "Register TTN"
 #endif
@@ -794,6 +822,14 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
     u8g2_SetFont(Display, u8g2_font_6x12_tr);
     u8g2_DrawStr(Display, 0, 42, "Long=YES");
     u8g2_DrawStr(Display, 0, 58, "Short=cancel"); }
+#ifdef WITH_USB_MEMORY
+  else if(OLED_Menu==OLED_MenuUSBConfirm)
+  { u8g2_DrawStr(Display, 0, 22, "USB MEMORY MODE?");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 36, "Stops tracker");
+    u8g2_DrawStr(Display, 0, 48, "Full read/write flash");
+    u8g2_DrawStr(Display, 0, 61, "Long=YES  Short=cancel"); }
+#endif
 #ifdef WITH_LORAWAN
   else if(OLED_Menu==OLED_MenuTTNConfirm)
   { u8g2_DrawStr(Display, 0, 25, "REGISTER TTN?");
@@ -977,6 +1013,17 @@ static void OLED_HandleKeypadLock(void)
 }
 #endif
 
+#ifdef WITH_USB_MEMORY
+static void OLED_DrawUSBMemoryMode(u8g2_t *Display)
+{ u8g2_SetFont(Display, u8g2_font_7x13_tf);
+  u8g2_DrawStr(Display, 0, 18, "USB MEMORY MODE");
+  u8g2_SetFont(Display, u8g2_font_6x12_tr);
+  u8g2_DrawStr(Display, 0, 34, "External flash FAT");
+  u8g2_DrawStr(Display, 0, 44, "read/write enabled");
+  u8g2_DrawStr(Display, 0, 54, "Reset or repower");
+  u8g2_DrawStr(Display, 0, 64, "to resume tracker"); }
+#endif
+
 void OLED_Task(void *Parms)
 {
   (void)Parms;
@@ -1010,6 +1057,17 @@ void OLED_Task(void *Parms)
     if(!OLED_KeypadLocked) OLED_MenuHandleEvent(Events);
 #endif
     if(Events&OLED_EventTakeoff) OLED_HandleTakeoff();
+
+#ifdef WITH_USB_MEMORY
+    if(USBMemory_IsActive())
+    { OLED.clearBuffer();
+      OLED_DrawUSBMemoryMode(OLED.getU8g2());
+      if(xSemaphoreTake(I2C_Mutex, 50))
+      { OLED.sendBuffer();
+        xSemaphoreGive(I2C_Mutex); }
+      vTaskSuspend(NULL);                         // remain in USB mode until reset
+    }
+#endif
 
     GPS_Position *GPS = GPS_getPosition();
     if(GPS==0) GPS = GPS_Pos+GPS_PosIdx;

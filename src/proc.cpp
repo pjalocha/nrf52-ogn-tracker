@@ -120,7 +120,8 @@ static LDPC_Decoder     Decoder;      // decoder and error corrector for the OGN
 
 // log a received ADS-L packet
 static int FlashLog(ADSL_RxPacket *RxPacket, uint32_t Time)
-{ OGN_LogPacket<OGN_Packet> *LogPacket = FlashLog_FIFO.getWrite(); if(LogPacket==0) return -1; // allocate new packet in the LOG_FIFO
+{ if(FlashLog_IsUSBPreparing()) return -1;
+  OGN_LogPacket<OGN_Packet> *LogPacket = FlashLog_FIFO.getWrite(); if(LogPacket==0) return -1; // allocate new packet in the LOG_FIFO
   memcpy(LogPacket->PktByte(), RxPacket->Packet.Byte, 20);
   LogPacket->Flags=0x80;                                                                       // set Rx flag
   LogPacket->Prot=1;          // this is an ADS-L, not OGN packet
@@ -131,7 +132,8 @@ static int FlashLog(ADSL_RxPacket *RxPacket, uint32_t Time)
 
 // log a received OGN packet
 static int FlashLog(OGN_RxPacket<OGN_Packet> *RxPacket, uint32_t Time)
-{ OGN_LogPacket<OGN_Packet> *LogPacket = FlashLog_FIFO.getWrite(); if(LogPacket==0) return -1; // allocate new packet in the LOG_FIFO
+{ if(FlashLog_IsUSBPreparing()) return -1;
+  OGN_LogPacket<OGN_Packet> *LogPacket = FlashLog_FIFO.getWrite(); if(LogPacket==0) return -1; // allocate new packet in the LOG_FIFO
   LogPacket->Packet = RxPacket->Packet;                                                          // copy the packet
   LogPacket->Flags=0x80;                                                                       // set Rx flag
   LogPacket->setTime(Time);
@@ -141,7 +143,8 @@ static int FlashLog(OGN_RxPacket<OGN_Packet> *RxPacket, uint32_t Time)
 
 // log own OGN packet
 static int FlashLog(OGN_TxPacket<OGN_Packet> *Packet, uint32_t Time)
-{ OGN_LogPacket<OGN_Packet> *LogPacket = FlashLog_FIFO.getWrite(); if(LogPacket==0) return -1;
+{ if(FlashLog_IsUSBPreparing()) return -1;
+  OGN_LogPacket<OGN_Packet> *LogPacket = FlashLog_FIFO.getWrite(); if(LogPacket==0) return -1;
   LogPacket->Packet = Packet->Packet;
   LogPacket->Flags=0x00;                                                                       // clear Rx flag
   // LogPacket->SNR = ;
@@ -1049,6 +1052,7 @@ void vTaskPROC(void* pvParameters)
   {
     TaskWatchdog_Heartbeat(TaskWatchdog_PROC);
     vTaskDelay(1);
+    if(USBMemory_IsActive()) vTaskSuspend(NULL);
 
     for( ; ; )
     { FSK_RxPacket *RxPkt = FSK_RxFIFO.getRead();                        // check for new received packets
@@ -1245,7 +1249,7 @@ void vTaskPROC(void* pvParameters)
 #ifdef WITH_MESHT
       static uint8_t MSHbackOff=0;
       if(MSHbackOff) MSHbackOff--;
-      else if(Parameters.TxMSH && Position->isValid() && Radio_FreqPlan.Plan<=1)
+      else if(Parameters.TxMSHT && Position->isValid() && Radio_FreqPlan.Plan<=1)
       { MESHT_Packet *Packet = MSH_TxFIFO.getWrite();
         int OK=getMeshtPacket(Packet, Position);
         if(OK)

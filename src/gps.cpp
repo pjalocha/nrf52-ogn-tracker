@@ -1139,6 +1139,7 @@ void vTaskGPS(void* pvParameters)
   for( ; ; )                                                              // main task loop: every milisecond (RTOS time tick)
   {
     TaskWatchdog_Heartbeat(TaskWatchdog_GPS);
+    if(USBMemory_IsActive()) vTaskSuspend(NULL);
     // vTaskDelay(1);                                                        // wait for the next time tick (but apparently it can wait more than one OS tick)
     TickType_t NewTick = xTaskGetTickCount();
     TickType_t Delta = NewTick-RefTick;

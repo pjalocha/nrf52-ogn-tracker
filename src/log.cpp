@@ -34,6 +34,8 @@ int      FlashLog_Files = 0;
 static uint32_t FlashLog_TotalSpace = 0;
 static uint32_t FlashLog_FreeSpace = 0;
 static volatile uint8_t FlashLog_StorageUpdateRequest = 0;
+static volatile bool FlashLog_USBRequest = false;
+static volatile bool FlashLog_USBReady = false;
 
 static FatFile FlashLog_File;
 
@@ -241,6 +243,20 @@ void FlashLog_GetStorage(uint32_t &Total, uint32_t &Free)
 void FlashLog_RequestStorageUpdate(void)
 { FlashLog_StorageUpdateRequest++; }
 
+bool FlashLog_IsUSBPreparing(void)
+{ return FlashLog_USBRequest; }
+
+bool FlashLog_PrepareUSB(uint32_t TimeoutMS)
+{
+  FlashLog_USBReady=false;
+  FlashLog_USBRequest=true;
+  uint32_t Start=millis();
+  while(!FlashLog_USBReady && (uint32_t)(millis()-Start)<TimeoutMS)
+    vTaskDelay(1);
+  if(!FlashLog_USBReady) FlashLog_USBRequest=false;
+  return FlashLog_USBReady;
+}
+
 static int FlashLog_Clean(size_t MinFree=0)
 { if(!LogFS_isMounted()) return -1;
   uint32_t Total = (uint32_t)LogFS.clusterCount() * LogFS.bytesPerCluster();
@@ -267,8 +283,26 @@ static int FlashLog_Clean(size_t MinFree, int Loops)
     Count++; }
   return Count; }
 
+static bool FlashLog_SetTimestamp(uint8_t Flags, uint32_t Time)
+{ if(!FlashLog_File.isOpen() || Time<946771200UL) return false; // 2000-01-02
+  GPS_Time DateTime;
+  DateTime.setUnixTime(Time);
+  if(DateTime.Year<0 || DateTime.Year>99 || DateTime.Month<1 || DateTime.Month>12 ||
+     DateTime.Day<1 || DateTime.Day>31 || DateTime.Hour<0 || DateTime.Hour>23 ||
+     DateTime.Min<0 || DateTime.Min>59 || DateTime.Sec<0 || DateTime.Sec>59) return false;
+  return FlashLog_File.timestamp(Flags, 2000+(uint8_t)DateTime.Year,
+                                 (uint8_t)DateTime.Month, (uint8_t)DateTime.Day,
+                                 (uint8_t)DateTime.Hour, (uint8_t)DateTime.Min,
+                                 (uint8_t)DateTime.Sec); }
+
+static void FlashLog_Close(uint32_t Time)
+{ if(!FlashLog_File.isOpen()) return;
+  FlashLog_SetTimestamp(T_WRITE, Time);
+  FlashLog_File.sync();
+  FlashLog_File.close(); }
+
 static int FlashLog_Open(uint32_t Time)
-{ if(FlashLog_File.isOpen()) FlashLog_File.close();
+{ if(FlashLog_File.isOpen()) FlashLog_Close(Time);
   FlashLog_CleanEmpty(32);
   FlashLog_Clean(2*FlashLog_MaxSize, 2);
   FlashLog_FullFileName(FlashLog_FileName, Time);
@@ -278,13 +312,15 @@ static int FlashLog_Open(uint32_t Time)
   if(!FlashLog_OpenFile(FlashLog_File, FlashLog_FileName, O_WRONLY | O_CREAT | O_TRUNC))
   { FlashLog_Clean(0, 4);
     return 0; }
+  FlashLog_SetTimestamp(T_CREATE|T_WRITE, Time);
   return 1; }
 
-static void FlashLog_Reopen(void)
+static void FlashLog_Reopen(uint32_t Time)
 { if(FlashLog_File.isOpen())
-  { FlashLog_File.close();
+  { FlashLog_Close(Time);
     if(FlashLog_OpenFile(FlashLog_File, FlashLog_FileName, O_WRONLY | O_CREAT | O_APPEND | O_AT_END))
-    { FlashLog_FileFlush = FlashLog_File.curPosition(); }
+    { FlashLog_SetTimestamp(T_WRITE, Time);
+      FlashLog_FileFlush = FlashLog_File.curPosition(); }
   }
   FlashLog_SaveReq = 0; }
 
@@ -294,7 +330,7 @@ static int FlashLog_Record(OGN_LogPacket<OGN_Packet> *Packet, int Packets, uint3
     uint32_t WritePos = FlashLog_File.curPosition();
     uint32_t WriteSize = Packets*OGN_LogPacket<OGN_Packet>::Bytes;
     if((TimeSinceStart>=FlashLog_MaxTime) || ((WritePos+WriteSize)>FlashLog_MaxSize))
-    { FlashLog_File.close(); }
+    { FlashLog_Close(Time); }
   }
 
   if(!FlashLog_File.isOpen()) FlashLog_Open(Time);
@@ -302,12 +338,12 @@ static int FlashLog_Record(OGN_LogPacket<OGN_Packet> *Packet, int Packets, uint3
 
   int Written = FlashLog_File.write((const uint8_t *)Packet, Packets*Packet->Bytes);
   if(Written!=(Packets*Packet->Bytes))
-  { FlashLog_File.close();
+  { FlashLog_Close(Time);
     FlashLog_Clean(0, 4);
     return -1; }
 
   uint32_t WritePos = FlashLog_File.curPosition();
-  if(WritePos-FlashLog_FileFlush>FlashLog_SaveSize) FlashLog_Reopen();
+  if(WritePos-FlashLog_FileFlush>FlashLog_SaveSize) FlashLog_Reopen(Time);
   return Packets; }
 
 static int Copy(void)
@@ -352,19 +388,39 @@ extern "C" void vTaskLOG(void* pvParameters)
   {
     TaskWatchdog_Heartbeat(TaskWatchdog_LOG);
     vTaskDelay(1);
+
+    if(FlashLog_USBRequest)
+    {
+      bool Ready=true;
+      if(LogFS_isMounted())
+      { while(FlashLog_FIFO.Full()>0)
+        { if(Copy()<=0) { Ready=false; break; }
+          vTaskDelay(1); }
+        if(Ready && FlashLog_File.isOpen())
+          FlashLog_Close(TimeSync_Time());
+      }
+      else FlashLog_FIFO.Clear();
+      if(Ready)
+      { LogFS_end();
+        FlashLog_USBReady=true;
+        vTaskSuspend(NULL);                       // USB owns the flash until reset
+      }
+    }
+
     uint32_t Now=millis();
     bool StorageUpdateRequested=FlashLog_StorageUpdateRequest!=StorageUpdateRequest;
     if(StorageUpdateRequested) StorageUpdateRequest=FlashLog_StorageUpdateRequest;
     if(StorageUpdateRequested || (FlashLog_isOpen() && (uint32_t)(Now-StorageUpdateTime)>=10000))
     { FlashLog_UpdateStorage();
       StorageUpdateTime=Now; }
-    bool Flying = GPS_TimeSinceLock>=10 && PowerMode>0;
+    bool Flying = Flight.inFlight(); // GPS_TimeSinceLock>=10;
+    Flying = Flying && PowerMode>0;
     bool Landed = PrevFlying && !Flying;
     PrevFlying = Flying;
     size_t Packets = FlashLog_FIFO.Full();
 
     if(Flying && LogFS_isMounted())
-    { if(FlashLog_SaveReq) FlashLog_Reopen();
+    { if(FlashLog_SaveReq) FlashLog_Reopen(TimeSync_Time());
       TickType_t Tick = xTaskGetTickCount();
       if(Packets==0) { PrevTick=Tick; vTaskDelay(50); continue; }
       if(Packets>=8) { Copy(); PrevTick=Tick; continue; }
@@ -377,7 +433,7 @@ extern "C" void vTaskLOG(void* pvParameters)
         { if(Copy()<=0) break;
           vTaskDelay(1); }
       }
-      if(FlashLog_File.isOpen()) FlashLog_File.close();
+      if(FlashLog_File.isOpen()) FlashLog_Close(TimeSync_Time());
       while(FlashLog_FIFO.Full()>=FlashLog_FIFO.Len/2)
       { FlashLog_FIFO.Read();
         vTaskDelay(1); }

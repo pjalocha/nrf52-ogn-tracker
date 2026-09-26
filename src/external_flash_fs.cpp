@@ -148,6 +148,13 @@ bool LogFS_begin(void)
   return LogFSMounted;
 }
 
+void LogFS_end(void)
+{
+  if(LogFSMounted) LogFS.end();
+  LogFSMounted=false;
+  if(ExternalFlashBegun) ExternalFlash.syncBlocks();
+}
+
 bool LogFS_isDetected(void)
 {
   return ExternalFlashBegun;

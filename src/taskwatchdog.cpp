@@ -80,4 +80,13 @@ void TaskWatchdog_Start(uint32_t ExpectedTasks)
               configMAX_PRIORITIES-1, NULL);
 }
 
+void TaskWatchdog_EnterMaintenance(void)
+{
+  // The application tasks intentionally stop heartbeating in USB memory mode.
+  // Keep the hardware watchdog alive while the independent USB task serves
+  // the mass-storage device; a reset is still the only way out of that mode.
+  TaskWatchdog_Expected=0;
+  TaskWatchdog_Seen=0;
+}
+
 #endif

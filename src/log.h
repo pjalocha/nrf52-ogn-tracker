@@ -18,6 +18,8 @@ extern int      FlashLog_Files;
 
 void FlashLog_GetStorage(uint32_t &Total, uint32_t &Free);
 void FlashLog_RequestStorageUpdate(void);
+bool FlashLog_PrepareUSB(uint32_t TimeoutMS);
+bool FlashLog_IsUSBPreparing(void);
 bool FlashLog_isOpen(void);
 int  FlashLog_FullFileName(char *FileName, uint32_t Time);
 int  FlashLog_ShortFileName(char *FileName, uint32_t Time);

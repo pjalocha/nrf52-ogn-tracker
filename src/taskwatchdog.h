@@ -23,7 +23,9 @@ static inline uint32_t TaskWatchdog_Bit(TaskWatchdog_Id Id)
 #ifdef WITH_TASK_WATCHDOG
 void TaskWatchdog_Heartbeat(TaskWatchdog_Id Id);
 void TaskWatchdog_Start(uint32_t ExpectedTasks);
+void TaskWatchdog_EnterMaintenance(void);
 #else
 static inline void TaskWatchdog_Heartbeat(TaskWatchdog_Id) { }
 static inline void TaskWatchdog_Start(uint32_t) { }
+static inline void TaskWatchdog_EnterMaintenance(void) { }
 #endif

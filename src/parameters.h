@@ -207,7 +207,7 @@ uint16_t StratuxPort;
       bool TxWAN :1;         // #5 LoRaWAN
       bool TxADSB:1;         // #6 ADS-B
       bool TxODID:1;         // #7 Open-Drone-ID
-      bool TxMSH :1;         // #8 Meshtastic
+      bool TxMSHT:1;         // #8 Meshtastic
       // 7 bits spare
     } ;
   } ;
@@ -215,7 +215,7 @@ uint16_t StratuxPort;
   union
   { uint16_t RxProtMask;
     struct __attribute__((packed, aligned(2)))
-    { bool RxSpare:1;
+    { bool RxFLR:1;
       bool RxOGN:1;
       bool RxADSL:1;
       bool RxPAW:1;
@@ -223,6 +223,7 @@ uint16_t StratuxPort;
       bool RxWAN:1;
       bool RxADSB:1;
       bool RxODID:1;
+      bool RxMSHT:1;         // #8 Meshtastic
       // 8 bits spare
     } __attribute__((packed));
   } ;

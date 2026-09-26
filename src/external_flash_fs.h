@@ -11,6 +11,7 @@ extern Adafruit_SPIFlash ExternalFlash;
 extern FatVolume LogFS;
 
 bool LogFS_begin(void);
+void LogFS_end(void);
 bool LogFS_isDetected(void);
 bool LogFS_isMounted(void);
 bool LogFS_format(Print &Out);
@@ -22,6 +23,7 @@ int LogFS_writeFile(const char *Name, const void *Data, size_t Size);
 #else
 
 inline bool LogFS_begin(void) { return false; }
+inline void LogFS_end(void) { }
 inline bool LogFS_isDetected(void) { return false; }
 inline bool LogFS_isMounted(void) { return false; }
 inline bool LogFS_format(Print &Out) { Out.println("ExternalFlash: not configured"); return false; }

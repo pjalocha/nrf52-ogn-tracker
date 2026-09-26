@@ -843,6 +843,9 @@ static int ProcessInput(void)
 
 void loop()
 {
+  if(USBMemory_IsActive())
+  { vTaskSuspend(NULL);                         // USB owns the device until reset
+    return; }
   TaskWatchdog_Heartbeat(TaskWatchdog_Loop);
   vTaskDelay(1);
 #ifdef WITH_BEEPER
