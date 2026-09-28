@@ -215,7 +215,7 @@ uint16_t StratuxPort;
   union
   { uint16_t RxProtMask;
     struct __attribute__((packed, aligned(2)))
-    { bool RxFLR:1;
+    { bool RxFLR :1;         // #0 FLARM
       bool RxOGN:1;
       bool RxADSL:1;
       bool RxPAW:1;
@@ -224,7 +224,7 @@ uint16_t StratuxPort;
       bool RxADSB:1;
       bool RxODID:1;
       bool RxMSHT:1;         // #8 Meshtastic
-      // 8 bits spare
+      // 7 bits spare
     } __attribute__((packed));
   } ;
 

@@ -8,3 +8,9 @@ lookout_sim: lookout_sim.cc
 
 lookout_case: lookout_case.cc
 	g++ $(CXXFLAGS) -o lookout_case lookout_case.cc $(COMMON_SRC)
+
+lookout_replay:	lookout_replay.cc
+	g++ $(CXXFLAGS) -o lookout_replay lookout_replay.cc $(COMMON_SRC) -lcairo
+
+lookout_otherme_replay: lookout_otherme_replay.cc
+	g++ $(CXXFLAGS) -o lookout_otherme_replay lookout_otherme_replay.cc $(COMMON_SRC)
