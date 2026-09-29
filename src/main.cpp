@@ -214,6 +214,11 @@ static void Button_Long(Button2 Butt)
   (void)Butt;
   OLED_ButtonLong();
 #else
+#ifdef WITH_LOG
+  if(!FlashLog_PrepareShutdown(10000)) return;  // don't power off while a log is still open
+  LogFS_shutdown();
+  TaskWatchdog_EnterMaintenance();
+#endif
   PowerMode=0;
 // #ifdef WITH_BEEPER
 //   Beep_Off();
