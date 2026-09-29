@@ -155,6 +155,13 @@ void LogFS_end(void)
   if(ExternalFlashBegun) ExternalFlash.syncBlocks();
 }
 
+void LogFS_shutdown(void)
+{
+  LogFS_end();
+  if(ExternalFlashBegun) ExternalFlash.end();
+  ExternalFlashBegun=false;
+}
+
 bool LogFS_isDetected(void)
 {
   return ExternalFlashBegun;

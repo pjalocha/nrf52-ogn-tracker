@@ -28,6 +28,7 @@ extern          uint16_t GPS_LatCosine;     // [1.0/(1<<12)] Latitude Cosine for
 extern          uint32_t GPS_TimeSinceLock; // [sec] time since GPS has a valid lock
 // extern          uint32_t GPS_Random;        // random number produced from the GPS data
 extern          uint16_t GPS_PosPeriod;     // [msec] how often (which period) the GPS/MAV is sending the positions
+bool GPS_IsPowerDownReady(void);
 
 extern           uint8_t GPS_SatSNR;        // [0.25dB] average SNR for satellites being tracked
 extern           uint8_t GPS_SatCnt;        // [count] number of satellites being tracked
@@ -79,4 +80,3 @@ extern FlightMonitor Flight;                // detect/monitor takeoff/flight/lan
   extern "C"
 #endif
 void vTaskGPS(void* pvParameters);
-

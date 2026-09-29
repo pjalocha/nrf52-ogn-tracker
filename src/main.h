@@ -26,7 +26,7 @@ const uint8_t KNOB_Tick = 15;
 #ifndef VERSION
 // Release builds override this through scripts/version.py; keep a useful
 // value for ordinary untagged local builds.
-#define VERSION "0.1.41"
+#define VERSION "0.1.42"
 #endif
 
 #ifndef SOFT_NAME
@@ -96,7 +96,10 @@ extern SemaphoreHandle_t CONS_Mutex;
 extern SemaphoreHandle_t I2C_Mutex;
 // extern SemaphoreHandle_t WIFI_Mutex;
 
-extern uint8_t PowerMode;
+extern volatile uint8_t PowerMode;               // 0=quiescent/reversible; nonzero=operational
+#if defined(WITH_SHUTDOWN) && defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+void Tracker_ShutdownRequest(void);
+#endif
 
 typedef union
 {

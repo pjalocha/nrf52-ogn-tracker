@@ -34,8 +34,8 @@ int      FlashLog_Files = 0;
 static uint32_t FlashLog_TotalSpace = 0;
 static uint32_t FlashLog_FreeSpace = 0;
 static volatile uint8_t FlashLog_StorageUpdateRequest = 0;
-static volatile bool FlashLog_USBRequest = false;
-static volatile bool FlashLog_USBReady = false;
+static volatile bool FlashLog_StopRequest = false;
+static volatile bool FlashLog_StopReady = false;
 
 static FatFile FlashLog_File;
 
@@ -244,17 +244,20 @@ void FlashLog_RequestStorageUpdate(void)
 { FlashLog_StorageUpdateRequest++; }
 
 bool FlashLog_IsUSBPreparing(void)
-{ return FlashLog_USBRequest; }
+{ return FlashLog_StopRequest; }
 
 bool FlashLog_PrepareUSB(uint32_t TimeoutMS)
+{ return FlashLog_PrepareShutdown(TimeoutMS); }
+
+bool FlashLog_PrepareShutdown(uint32_t TimeoutMS)
 {
-  FlashLog_USBReady=false;
-  FlashLog_USBRequest=true;
+  FlashLog_StopReady=false;
+  FlashLog_StopRequest=true;
   uint32_t Start=millis();
-  while(!FlashLog_USBReady && (uint32_t)(millis()-Start)<TimeoutMS)
+  while(!FlashLog_StopReady && (uint32_t)(millis()-Start)<TimeoutMS)
     vTaskDelay(1);
-  if(!FlashLog_USBReady) FlashLog_USBRequest=false;
-  return FlashLog_USBReady;
+  if(!FlashLog_StopReady) FlashLog_StopRequest=false;
+  return FlashLog_StopReady;
 }
 
 static int FlashLog_Clean(size_t MinFree=0)
@@ -389,7 +392,7 @@ extern "C" void vTaskLOG(void* pvParameters)
     TaskWatchdog_Heartbeat(TaskWatchdog_LOG);
     vTaskDelay(1);
 
-    if(FlashLog_USBRequest)
+    if(FlashLog_StopRequest)
     {
       bool Ready=true;
       if(LogFS_isMounted())
@@ -402,8 +405,8 @@ extern "C" void vTaskLOG(void* pvParameters)
       else FlashLog_FIFO.Clear();
       if(Ready)
       { LogFS_end();
-        FlashLog_USBReady=true;
-        vTaskSuspend(NULL);                       // USB owns the flash until reset
+        FlashLog_StopReady=true;
+        vTaskSuspend(NULL);                       // storage is closed until reset
       }
     }
 

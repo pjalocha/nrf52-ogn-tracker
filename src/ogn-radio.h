@@ -63,6 +63,7 @@ extern uint32_t Radio_msLiveTime;      // [ms] time spent receiving
 extern uint32_t Radio_msDeadTime;      // [ms] time spent reconfiguring/transmitting
 extern  int32_t Radio_TxCredit;
 extern float    Radio_BkgRSSI;        // [dBm] background noise seen by the receiver
+bool Radio_IsPowerDownReady(void);
 extern float    Radio_PktRate;        // [Hz]
 
 extern const char *Radio_ChipType;    // "SX1262" or "SX1276"

@@ -33,7 +33,11 @@ SemaphoreHandle_t BLE_Mutex;
 
 // =======================================================================================================
 
-uint8_t PowerMode = 2;
+volatile uint8_t PowerMode = 2;                  // 0=quiescent/reversible, nonzero=operational
+#if defined(WITH_SHUTDOWN) && defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+static volatile bool Tracker_ShutdownPending=false;
+static bool Tracker_ShutdownInProgress=false;
+#endif
 Word32x2 Random = { .Word = 0x123456789ABCDEF0ULL };
 HardItems HardwareStatus = { .Flags = 0 };
 
@@ -841,6 +845,65 @@ static int ProcessInput(void)
   }
   return Count; }
 
+#if defined(WITH_SHUTDOWN) && defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+void Tracker_ShutdownRequest(void)
+{ Tracker_ShutdownPending=true; }
+
+static bool Tracker_WaitFor(bool (*Ready)(void), uint32_t TimeoutMS)
+{ uint32_t Start=millis();
+  while(!Ready() && (uint32_t)(millis()-Start)<TimeoutMS)
+    vTaskDelay(pdMS_TO_TICKS(10));
+  return Ready(); }
+
+static void Tracker_EnterSystemOff(void)
+{
+#ifdef WITH_BLE_SPP
+  uint8_t SoftDeviceEnabled=0;
+  if(sd_softdevice_is_enabled(&SoftDeviceEnabled)==NRF_SUCCESS && SoftDeviceEnabled)
+  { (void)sd_power_system_off();
+    NVIC_SystemReset(); }
+#endif
+  NRF_POWER->SYSTEMOFF=1;
+  NVIC_SystemReset();
+}
+
+static void Tracker_Shutdown(void)
+{
+  if(Tracker_ShutdownInProgress) return;
+  Tracker_ShutdownInProgress=true;
+
+#ifdef WITH_LOG
+  if(!FlashLog_PrepareShutdown(10000))
+  { Tracker_ShutdownInProgress=false;
+    OLED_ShutdownFailed();
+    return; }
+#endif
+  LogFS_shutdown();                    // unmount/sync was done by LOG; deinit flash bus
+
+  TaskWatchdog_EnterMaintenance();
+  PowerMode=0;
+  if(!Tracker_WaitFor(Radio_IsPowerDownReady, 5000) ||
+     !Tracker_WaitFor(GPS_IsPowerDownReady, 5000))
+    NVIC_SystemReset();
+
+  OLED_RequestPowerDown();
+  if(!Tracker_WaitFor(OLED_IsPowerDownReady, 3000))
+    NVIC_SystemReset();
+
+#ifdef WITH_BEEPER
+  Beep(0);
+#endif
+  LED_PCB_Off();
+#if defined(Battery_Enable_Pin)
+  digitalWrite(Battery_Enable_Pin, Battery_Enable_StateOn==HIGH ? LOW : HIGH);
+#endif
+#if Button_Pin >= 0
+  pinMode(Button_Pin, INPUT);                    // do not use the front button as a wake source
+#endif
+  Tracker_EnterSystemOff();                       // reset button or power cycle starts a fresh boot
+}
+#endif
+
 void loop()
 {
   if(USBMemory_IsActive())
@@ -848,6 +911,11 @@ void loop()
     return; }
   TaskWatchdog_Heartbeat(TaskWatchdog_Loop);
   vTaskDelay(1);
+#if defined(WITH_SHUTDOWN) && defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
+  if(Tracker_ShutdownPending)
+  { Tracker_ShutdownPending=false;
+    Tracker_Shutdown(); }
+#endif
 #ifdef WITH_BEEPER
   Play_TimerCheck(1);              // handle playing notes on the buzzer
 #endif

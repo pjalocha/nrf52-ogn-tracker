@@ -67,6 +67,10 @@ static const uint8_t SYNC_LDR [10] = { 0xB4, 0x2B, 0x00, 0x00, 0x00, 0x00, 0x18,
 
 uint32_t Radio_msLiveTime = 0;
 uint32_t Radio_msDeadTime = 0;
+static volatile bool Radio_PowerDownReady=false;
+
+bool Radio_IsPowerDownReady(void)
+{ return Radio_PowerDownReady; }
 
 uint32_t Radio_TxCount[8] = { 0, 0, 0, 0, 0, 0, 0, 0 } ; // transmitted packet counters
 uint32_t Radio_RxCount[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } ; // received packet counters
@@ -1320,6 +1324,15 @@ void Radio_Task(void *Parms)
   for( ; ; )                                                      // main task loop: infinite
   {
     TaskWatchdog_Heartbeat(TaskWatchdog_RF);
+    if(PowerMode==0)
+    { if(!Radio_PowerDownReady && HardwareStatus.Radio)
+      { Radio.standby();
+        Radio.sleep();
+        Radio_Cache_Clear(); }
+      Radio_PowerDownReady=true;
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue; }
+    Radio_PowerDownReady=false;
     if(USBMemory_IsActive())
     { Radio.standby();
       Radio.sleep();
@@ -1328,7 +1341,6 @@ void Radio_Task(void *Parms)
     Radio_LoRaWANApplyRegister();
 #endif
     if(!HardwareStatus.Radio) { vTaskDelay(1000); continue; }
-    if(PowerMode==0) { Radio.standby(); Radio.sleep(); Radio_Cache_Clear(); vTaskDelay(5000); continue; }
 
     int PktCount=0;
 

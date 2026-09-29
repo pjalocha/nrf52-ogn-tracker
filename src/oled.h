@@ -16,6 +16,11 @@ void OLED_TakeoffDetected(void);
 void OLED_ButtonLong(void);
 #endif
 void OLED_Task(void *Parms);
+#ifdef WITH_SHUTDOWN
+void OLED_RequestPowerDown(void);
+bool OLED_IsPowerDownReady(void);
+void OLED_ShutdownFailed(void);
+#endif
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
 void OLED_MenuButtonClick(void);
 void OLED_MenuButtonLong(void);

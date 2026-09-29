@@ -51,6 +51,7 @@ GPS_Position GPS_Pos[GPS_PosPipeSize];     // GPS position pipe
 
 static   TickType_t PPS_Tick;              // [msec] System Tick when the PPS arrived
 static   TickType_t Burst_Tick;            // [msec] System Tick when the data burst from GPS started
+static volatile bool GPS_PowerDownReady=false;
 
          uint32_t   GPS_TimeSinceLock;     // [sec] time since the GPS has a lock
           int32_t   GPS_Altitude  = 0;     // [0.1m] last valid altitude
@@ -72,6 +73,9 @@ static   TickType_t Burst_Tick;            // [msec] System Tick when the data b
          char GPS_Hardware  [16]  = { 0 }; // hardware info read from the GPS
          char GPS_Firmware  [32]  = { 0 }; // software info read from the GPS
          char GPS_FirmExt[8][32]  = { 0 }; // software extensions
+
+bool GPS_IsPowerDownReady(void)
+{ return GPS_PowerDownReady; }
 
 GPS_SatList GPS_SatMon;              // list of satellites for SNR monitoring
 
@@ -1140,6 +1144,31 @@ void vTaskGPS(void* pvParameters)
   {
     TaskWatchdog_Heartbeat(TaskWatchdog_GPS);
     if(USBMemory_IsActive()) vTaskSuspend(NULL);
+    if(PowerMode==0)
+    {
+      if(!GPS_PowerDownReady)
+      {
+#if defined(GPS_PinEna) && GPS_PinEna>=0
+        GPS_DISABLE();
+#endif
+        GPS_UART.end();
+        GPS_PowerDownReady=true;
+      }
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+    if(GPS_PowerDownReady)
+    {
+      GPS_UART_Init(GPS_getBaudRate());
+      NMEA.Clear();
+#ifdef WITH_GPS_UBX
+      UBX.Clear();
+#endif
+#ifdef WITH_MAVLINK
+      MAV.Clear();
+#endif
+      GPS_PowerDownReady=false;
+    }
     // vTaskDelay(1);                                                        // wait for the next time tick (but apparently it can wait more than one OS tick)
     TickType_t NewTick = xTaskGetTickCount();
     TickType_t Delta = NewTick-RefTick;

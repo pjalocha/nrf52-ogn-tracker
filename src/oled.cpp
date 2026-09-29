@@ -81,6 +81,11 @@ static const uint32_t OLED_PageTimeout     = (uint32_t)60000*WITH_OLED_DIM;
 static TaskHandle_t OLED_TaskHandle = 0;
 static const uint32_t OLED_EventPageButton = 1u<<0;
 static const uint32_t OLED_EventTakeoff    = 1u<<4;
+#ifdef WITH_SHUTDOWN
+static const uint32_t OLED_EventShutdown   = 1u<<5;
+static const uint32_t OLED_EventShutdownFailed = 1u<<6;
+static volatile bool OLED_PowerDownReady=false;
+#endif
 #if defined(WITH_WIO_TRACKER)
 static const uint32_t OLED_EventPageLong   = 1u<<1;
 static bool OLED_KeypadLocked              = false;
@@ -111,6 +116,10 @@ enum OLED_MenuState
   OLED_MenuTextEdit,
   OLED_MenuFormatConfirm,
   OLED_MenuDefaultsConfirm,
+#ifdef WITH_SHUTDOWN
+  OLED_MenuShutdownConfirm,
+  OLED_MenuShutdownWait,
+#endif
 #ifdef WITH_USB_MEMORY
   OLED_MenuUSBConfirm,
 #endif
@@ -149,6 +158,9 @@ static const uint8_t OLED_MenuItems = 11
 #ifdef WITH_LORAWAN
   + 1
 #endif
+#ifdef WITH_SHUTDOWN
+  + 1
+#endif
 ;
 static const uint8_t OLED_MenuTextLength = FlashParameters::InfoParmLen-1;
 static const uint8_t OLED_MenuLookOutWarnTimes[4] = { 20, 30, 40, 50 };
@@ -184,7 +196,11 @@ static const char *OLED_MenuGhostNames[3] =
 static const char OLED_MenuTextCharacters[] =
   " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-+_/@#:";
 
+#ifdef WITH_SHUTDOWN
+static bool OLED_SetPowerSave(bool PowerSave);
+#else
 static void OLED_SetPowerSave(bool PowerSave);
+#endif
 static void OLED_PreviousPage(void);
 static void OLED_NextPage(void);
 
@@ -362,6 +378,11 @@ static void OLED_MenuEnterItem(void)
 #endif
       :
       OLED_Menu=OLED_MenuTTNConfirm;
+      break;
+#endif
+#ifdef WITH_SHUTDOWN
+    case OLED_MenuItems-1:
+      OLED_Menu=OLED_MenuShutdownConfirm;
       break;
 #endif
     default: break; }
@@ -551,10 +572,21 @@ static void OLED_MenuHandleEvent(uint32_t Event)
       OLED_MenuCenterGesturePending=false;
       if(!Allowed) return; }
   }
+#ifdef WITH_SHUTDOWN
+  if(OLED_Menu==OLED_MenuShutdownWait) return;
+#endif
   if(Event&OLED_EventMenuLong)
   { if(OLED_Menu==OLED_MenuClosed) OLED_MenuOpen();
     else if(OLED_Menu==OLED_MenuFormatConfirm) OLED_MenuFormatFlash();
     else if(OLED_Menu==OLED_MenuDefaultsConfirm) OLED_MenuResetDefaults();
+#ifdef WITH_SHUTDOWN
+    else if(OLED_Menu==OLED_MenuShutdownConfirm)
+    { OLED_Menu=OLED_MenuShutdownWait;
+      OLED_PageChange=true;
+      OLED_MenuBeepOpen();
+      vTaskDelay(pdMS_TO_TICKS(100));        // let the main loop service the queued beep
+      Tracker_ShutdownRequest(); }
+#endif
 #ifdef WITH_USB_MEMORY
     else if(OLED_Menu==OLED_MenuUSBConfirm)
     { if(USBMemory_Enter())
@@ -736,6 +768,9 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
 #ifdef WITH_LORAWAN
       , "Register TTN"
 #endif
+#ifdef WITH_SHUTDOWN
+      , "Shutdown"
+#endif
     };
     uint8_t First=OLED_MenuItem>1 ? OLED_MenuItem-1 : 0;
     if(First+3>OLED_MenuItems) First=OLED_MenuItems-3;
@@ -830,6 +865,18 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
     u8g2_DrawStr(Display, 0, 48, "Full read/write flash");
     u8g2_DrawStr(Display, 0, 61, "Long=YES  Short=cancel"); }
 #endif
+#ifdef WITH_SHUTDOWN
+  else if(OLED_Menu==OLED_MenuShutdownConfirm)
+  { u8g2_DrawStr(Display, 0, 25, "SHUTDOWN?");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 39, "Stops log, GPS, radio");
+    u8g2_DrawStr(Display, 0, 51, "Use RESET to wake");
+    u8g2_DrawStr(Display, 0, 63, "Long=YES  Short=cancel"); }
+  else if(OLED_Menu==OLED_MenuShutdownWait)
+  { u8g2_DrawStr(Display, 0, 25, "POWERING DOWN");
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 43, "Please wait..."); }
+#endif
 #ifdef WITH_LORAWAN
   else if(OLED_Menu==OLED_MenuTTNConfirm)
   { u8g2_DrawStr(Display, 0, 25, "REGISTER TTN?");
@@ -846,6 +893,19 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
 
 void OLED_ButtonSingle(void)
 { if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventPageButton, eSetBits); }
+
+#ifdef WITH_SHUTDOWN
+void OLED_RequestPowerDown(void)
+{ OLED_PowerDownReady=false;
+  if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventShutdown, eSetBits);
+  else OLED_PowerDownReady=true; }
+
+bool OLED_IsPowerDownReady(void)
+{ return OLED_PowerDownReady; }
+
+void OLED_ShutdownFailed(void)
+{ if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventShutdownFailed, eSetBits); }
+#endif
 
 void OLED_TakeoffDetected(void)
 { if(OLED_TaskHandle) xTaskNotify(OLED_TaskHandle, OLED_EventTakeoff, eSetBits); }
@@ -901,10 +961,18 @@ static void OLED_PreviousPage(void)
     if(OLED_PageAvailable(OLED_Page)) break; }
   OLED_PageChange=true; }
 
+#ifdef WITH_SHUTDOWN
+static bool OLED_SetPowerSave(bool PowerSave)
+{ if(!xSemaphoreTake(I2C_Mutex, 50)) return false;
+  OLED.setPowerSave(PowerSave ? 1 : 0);
+  xSemaphoreGive(I2C_Mutex);
+  return true; }
+#else
 static void OLED_SetPowerSave(bool PowerSave)
 { if(xSemaphoreTake(I2C_Mutex, 50))
   { OLED.setPowerSave(PowerSave ? 1 : 0);
     xSemaphoreGive(I2C_Mutex); } }
+#endif
 
 static int OLED_DrawPage(const GPS_Position *GPS)
 {
@@ -1037,6 +1105,16 @@ void OLED_Task(void *Parms)
     TaskWatchdog_Heartbeat(TaskWatchdog_OLED);
     uint32_t Events=0;
     xTaskNotifyWait(0, 0xFFFFFFFF, &Events, 0);
+#ifdef WITH_SHUTDOWN
+    if(Events&OLED_EventShutdownFailed)
+    { OLED_Menu=OLED_MenuList;
+      OLED_MenuShowMessage("Log close failed", -1);
+      OLED_PageChange=true; }
+    if(Events&OLED_EventShutdown)
+    { while(!OLED_SetPowerSave(true)) vTaskDelay(pdMS_TO_TICKS(10));
+      OLED_PowerDownReady=true;
+      vTaskSuspend(NULL); }
+#endif
 #if defined(WITH_WIO_TRACKER)
     if(Events&OLED_EventPageLong) OLED_HandleKeypadLock();
     if(!OLED_KeypadLocked)
