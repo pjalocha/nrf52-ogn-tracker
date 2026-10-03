@@ -181,7 +181,7 @@ static QRCode OLED_QRCode;
 static const char *OLED_MenuAcftTypeNames[16] =
 { "Unknown", "Glider", "Towplane", "Helicopter",
   "Skydiver", "Drop", "Hangglider", "Paraglider",
-  "Powered", "Jet", "Gyroplane", "Balloon",
+  "Motorplane", "Jet", "Gyroplane", "Balloon",
   "Zeppelin", "UAV", "Car", "Fixed" };
 
 static const char *OLED_MenuAddrTypeNames[4] =

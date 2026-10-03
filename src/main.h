@@ -26,7 +26,7 @@ const uint8_t KNOB_Tick = 15;
 #ifndef VERSION
 // Release builds override this through scripts/version.py; keep a useful
 // value for ordinary untagged local builds.
-#define VERSION "0.1.42"
+#define VERSION "0.1.43"
 #endif
 
 #ifndef SOFT_NAME
