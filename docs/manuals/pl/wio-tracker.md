@@ -4,11 +4,11 @@
 **Urządzenie:** Seeed Studio Wio Tracker L1  
 **Stan dokumentu:** wersja robocza; instrukcja będzie uzupełniana
 
-Ten dokument opisuje obsługę firmware OGN Tracker na urządzeniu Wio Tracker L1. Szczegółowe opisy poszczególnych ekranów, parametrów i typowych problemów będą dopisywane stopniowo.
+Ten dokument opisuje obsługę firmware OGN-Tracker na urządzeniu Wio Tracker L1. Szczegółowe opisy poszczególnych ekranów, parametrów i typowych problemów będą dopisywane stopniowo.
 
 ## 1. Przyciski, przełącznik oraz joystick
 
-Wyłącznik oraz przycisk reset umieszczone są z boku w taki sposób, że przypadkowe ich uruchomienienie jest w zasadzie niemożliwe. Służą one do załączania, wyłączania oraz operacji aktualizacji oprogramowania.
+Wyłącznik oraz przycisk reset służą do załączania, wyłączania oraz operacji aktualizacji oprogramowania. Umieszczone są one z boku obudowy w taki sposób, że przypadkowe ich uruchomienienie jest w zasadzie niemożliwe.
 
 Przycisk oraz joystick na panelu z przodu służą natomiast do przełączania stron oraz ustawiania parametrów.
 
@@ -38,56 +38,54 @@ Dokładna lista zależy od opcji wkompilowanych w daną wersję firmware. Podsta
 | Pozycja na ekranie | Znaczenie / działanie |
 | --- | --- |
 | `AcftType` | Typ statku powietrznego nadawany przez tracker, np. szybowiec, samolot, paralotnia lub UAV. |
-| `AddrType` | Rodzaj identyfikatora: RND, ICAO, FLARM albo OGN. Zmień go tylko zgodnie z przydzielonym identyfikatorem. |
 | `Address` | 24-bitowy adres wyświetlany jako sześć cyfr szesnastkowych. |
+| `AddrType` | Rodzaj adresu: RND, ICAO, FLARM albo OGN. Zmieniaj go tak, aby Twoje transmisje radiowe były możliwie spójne |
 | `Tx power` | Moc nadajnika w dBm. Dostępny zakres w menu: 0–22 dBm. |
-| `Warn time` | Czas wyprzedzenia ostrzeżeń: 20, 30, 40 albo 50 sekund. |
+| `Warn time` | Czas wyprzedzenia ostrzeżeń dzwiękowych: 20, 30, 40 albo 50 sekund. |
 | `Alerts` | Minimalny poziom ostrzeżenia: wszystkie, poziom 1 i wyższe, poziom 2 i wyższe, poziom 3 i wyższe albo wyłączone. |
 | `Ghost` | Ustawienie trybu Ghost. Dostępne wartości: Off, Traffic, Altitude. Szczegółowy opis skutków poszczególnych trybów zostanie uzupełniony. |
 | `Reg` | Edycja znaku rejestracyjnego. |
-| `Pilot` | Edycja nazwy pilota. |
+| `Pilot` | Edycja imienia pilota. |
 | `Format flash` | Formatuje zewnętrzną pamięć flash po ekranie potwierdzenia. Zobacz ostrzeżenie poniżej. |
-| `Reset defaults` | Przywraca domyślne wartości parametrów po ekranie potwierdzenia. |
-| `Register TTN` | Pozycja dostępna w firmware z LoRaWAN; rozpoczyna konfigurację TTN i pokazuje kod QR. |
-| `Shutdown` | Pozycja dostępna w firmware z obsługą wyłączania; zatrzymuje tracker. Do ponownego uruchomienia użyj przycisku RESET. |
-
-Pozycje `Register TTN` i `Shutdown` pojawiają się tylko wtedy, gdy firmware zostało zbudowane z odpowiednimi funkcjami. Inne opcje mogą pojawić się w zależności od konfiguracji.
+| `Reset defaults` | Przywraca domyślne wartości parametrów po ekranie potwierdzenia. Nie kasuje konfiguracji TTN/LoRaWAN |
+| `Register TTN` | Wygeneruj nowy klucz dla sieci TheThingsNetwork (kasuje bezpowrotnie poprzedni) - kod QR musi zostać wysłany do rejestracji |
+| `Shutdown` | Zamyka logger plików i usypia tracker. Do ponownego uruchomienia użyj przycisku RESET. |
 
 ### Edycja adresu
 
 Wartość adresu składa się z sześciu cyfr szesnastkowych. Góra/dół zmienia zaznaczoną cyfrę, a lewo/prawo wybiera cyfrę do edycji. Przytrzymaj środek joysticka, aby zapisać nowy adres.
+Pomyśl, czy na pewno chcesz wpisać nowy adres i co to jest za adres: nie wpisuj cudzego adresu np. ICAO albo FLARM chyba, że właśnie lecisz tym samolotem, wtedy jak najbardziej, a po zakończeniu lotu wpisz swój, albo wróć do ustawień fabrycznych.
 
-### Edycja tekstu
+### Edycja adresu
+
+Ustaw właściwy rodzaj adresu, który wpisałeś: np. jesli wpisałeś adres ICAO samolotu to ustaw także rodzaj adresu ICAO.
+
+### Edycja elementów identyfikacji
 
 Pozycje `Reg` i `Pilot` edytuje się znak po znaku. Lewo/prawo wybiera znak, góra/dół zmienia go. Dostępny zestaw obejmuje litery, cyfry, spację i wybrane znaki interpunkcyjne. Przytrzymaj środek joysticka, aby zapisać tekst.
 
-## 4. Ważne ostrzeżenia
+### Formatowanie pamięci flash (logi oraz inne pliki)
 
-### Aktualizacja firmware
-
-Przed aktualizacją firmware Wio Tracker sprawdź na dysku bootloadera, czy znajduje się plik `CURRENT.UF2`. Jeśli jest dostępny, skopiuj go w bezpieczne miejsce przed wgraniem nowej wersji. Może posłużyć do powrotu do poprzedniego firmware.
-
-`CURRENT.UF2` jest kopią firmware, a nie lotów zapisanych w zewnętrznej pamięci flash. Nie formatuj zewnętrznej pamięci przy zwykłej aktualizacji.
-
-### Formatowanie pamięci flash
-
-Formatowanie zewnętrznej pamięci usuwa jej zawartość, w tym zapisane pliki i logi lotów. Wykonuj tę operację tylko wtedy, gdy jest potrzebna, na przykład przy pierwszym uruchomieniu funkcji logowania albo po problemie wymagającym ponownego przygotowania systemu plików. Firmware nie wykona formatowania z menu, jeżeli log jest nadal otwarty.
+Formatowanie pamięci usuwa jej zawartość, w tym zapisane pliki i logi lotów. Wykonuj tę operację tylko wtedy, gdy jest potrzebna, na przykład przy pierwszym uruchomieniu funkcji logowania albo po problemie wymagającym ponownego przygotowania systemu plików. Firmware nie wykona formatowania z menu, jeżeli log jest nadal otwarty.
 
 ### Reset ustawień
 
-`Reset defaults` zmienia zapisane parametry na wartości domyślne. Użyj tej opcji tylko wtedy, gdy chcesz ponownie skonfigurować tracker.
+`Reset defaults` zmienia zapisane parametry na wartości domyślne. Użyj tej opcji tylko wtedy, gdy chcesz ponownie skonfigurować tracker 'od zera'.
 
 ### Wyłączanie
 
-Jeśli menu zawiera pozycję `Shutdown`, po jej zatwierdzeniu tracker zatrzyma logowanie, GPS i radio, a następnie się wyłączy. Poczekaj na zakończenie procesu. Do ponownego uruchomienia użyj RESET lub odłącz i ponownie podłącz zasilanie.
+Zalecane jest wykonanie `Shutdown`: tracker zatrzyma logowanie, GPS i radio, a następnie wejdzie w stan uśpienia. Poczekaj na zakończenie procesu. Do ponownego uruchomienia użyj RESET lub odłącz i ponownie podłącz zasilanie.
+Wyłaczenie zasilania, szczególnie w trakcie lotu, może skutkować zniszczeniem niektórych plików.
 
-## 5. Aktualizacja przez plik UF2
+## 5. Aktualizacja oprogramowania poprzez plik UF2
 
 1. Pobierz plik UF2 przeznaczony dla **Wio-Tracker**. Nie używaj obrazu dla T-Echo ani innego urządzenia.
-2. Jeśli jest dostępny, wykonaj kopię `CURRENT.UF2` zgodnie z sekcją ostrzeżeń.
-3. Dwukrotnie naciśnij RESET, aby wejść w tryb bootloadera. Urządzenie powinno pojawić się na komputerze jako dysk USB.
-4. Skopiuj plik UF2 na dysk bootloadera.
-5. Poczekaj na restart urządzenia i sprawdź, czy uruchamia się nowa wersja.
+2. Dwukrotnie naciśnij RESET, aby wejść w tryb bootloadera. Urządzenie powinno pojawić się na komputerze jako dysk USB.
+3. Jeśli chcesz zachować bieżące oprogramowanie to wykonaj kopię zapasową pliku `CURRENT.UF2`
+4. Skopiuj (nowy) pobrany plik UF2 na dysk USB.
+5. Poczekaj na restart urządzenia i sprawdź, czy uruchamiła się nowa wersja.
+
+Aktualizację można wykonywać dowolną liczbę razy, można wracać do poprzedniego oprogramowania, wpisywać zupełne inne oprogramowanie np. meshCore - nie ma tutaj żadnych ograniczeń typu, że jak wpisałem OGN-Tracker to już nic innego nie mogę nigdy wpisać.
 
 ## 6. Miejsce na kolejne rozdziały
 
