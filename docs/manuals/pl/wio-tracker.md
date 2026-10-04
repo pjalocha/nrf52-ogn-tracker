@@ -87,12 +87,29 @@ Wyłaczenie zasilania, szczególnie w trakcie lotu, może skutkować zniszczenie
 
 Aktualizację można wykonywać dowolną liczbę razy, można wracać do poprzedniego oprogramowania, wpisywać zupełne inne oprogramowanie np. meshCore - nie ma tutaj żadnych ograniczeń typu, że jak wpisałem OGN-Tracker to już nic innego nie mogę nigdy wpisać.
 
-## 6. Miejsce na kolejne rozdziały
+## 6. System ostrzeżeń przeciwkolizyjnych
 
-- Opis stron OLED i informacji wyświetlanych podczas lotu.
-- Szczegółowy opis parametrów i zalecane ustawienia.
-- Pierwsze uruchomienie i konfiguracja identyfikatora.
-- Logowanie lotów oraz odczyt plików z pamięci.
-- Połączenie BLE z aplikacją nawigacyjną.
-- Rozwiązywanie problemów i interpretacja komunikatów.
+System ten monitoruje statki powietrzne będące w zasięgu odbioru i wykonuje predykcje ich torów: jeśli któryś z torów zbliża się niebepiecznie do pozycji własnej odczytywanej z GPSa to wtedy generowane jest ostrzeżenie dzwiękowe.
+
+Najwcześniejszy poziom ostrzegania (nazwijmy go 'zerowym') to bliskość innego statku powietrznego, która jest sygnalizowana pojedynczym tonem w odstępie 10 sekund: nie jest to ostrzeżenie krytyczne, ponieważ nie wynika ze zbieżności toru tego statku.
+
+Jeżeli zostanie wykryty zbieżny tor to na 20 sekund przed szacowanym punktem maksymalnego zbliżenia pojawi się pierwszy poziom ostrzegania wyrażany jednym tonem w odstępnie sekundy: to oznacza, że za 20 sekund będziecie naprawdę blisko siebie !
+Ten czas 20 sekund można wydłuzyć w ustawieniach do 30, 40 lub 50 sekund.
+
+W miarę zbliżania się punktu krytycznego zbliżenia odzywać się będą kolejne poziomy alarmów: drugi (podwójny i wyższy ton) oraz trzeci (potrójny i jeszcze wyższy ton).
+W ustawieniach można ustawić, od którego poziomu chcemy słyszeć alarmy: np. 2+ oznacza, że usłyszymy tylko te od drugiego poziomu w górę, czyli drugi i trzeci (ostatni).
+
+**UWAGA:** algorytm przeciwkolizyjny jest eksperymentalny i choć został przesymulowany to nie jest żadną gwarancją czegokolwiek - w szczególności nie zastępuje on normalnym i obowiązkowych metod unikania kolizji w powietrzu czyli obserwacji przestrzeni powietrznej oraz zdrowego rozsądku.
+
+## 7. Logowanie lotów
+
+Wio-Tracker zapisuje (loguje) loty w zewnętrznej pamięci flash o pojemności około 2MB. Termin 'zewnętrzna' oznacza, że pamięć ta nie jest częścią jednostki centralnej, ale jest poza nią, na osobnym układzie scalonym (ale wciąż w tym samym urządzeniu).
+
+Pamięć ta jest sformatowana jako dysk typu FAT i pliki na niej zapisywane są równoprawne z plikami na innych nosnikach pamięci. Możliwy jest bezpośredni dostęp to tych plików jeśli ustawić Tracker w trybie 'USB memory': można wtedy pliki kopiować w jedną i w drugą stronę, można nawet uzywac klasycznych narzędzi do odzyskiwania plików, bo jest to zupełnie normalna partycja FAT, jak w innych komputerach.
+**Uwaga:** w trybie 'USB memory' Tracker **przestaje** działać jako urządzenie elektronicznej widoczności: aby przywrócić normalne funkcje należy przycisnąć przycisk RESET lub wyłączyć i włączyć ponownie urządzenie.
+
+Pliki zapisywane są w formacie binarnym, w celu maksymalnego wykorzystania ograniczonej przestrzeni do zapisu. Konwerter logów do postaci czytelnej dla użytkownika zostanie przedstawiony nieco później.
+
+Przy pierwszym uruchomieniu należy sformatować pamięć flash: patrz punkt w menu 'Format flash'. Flash należy sformatować w wypadku jego zepsucia np. poprzez wyłaczenie zasilania w nieodpowiednim momencie.
+Tutaj kolejna uwaga: przed wyłączeniem urządzenia dobrze jest wykonać 'Shutdown' w celu płynnego zamknięcia systemu plików, co minimalizuje ryzyko jego popsucia.
 
