@@ -1285,15 +1285,15 @@ void vTaskPROC(void* pvParameters)
 #ifdef WITH_PFLAA
 #ifdef WITH_BLE_SPP
       if(xSemaphoreTake(BLE_Mutex, 25))
-      { if(BLE_UART_Free()>80) Look.WritePFLA(BLE_UART_Write);
+      { Look.WritePFLA(BLE_UART_Write, BLE_UART_Free());
         xSemaphoreGive(BLE_Mutex); }
 #endif
 #ifdef CONS_OUTPUT
       if(Parameters.Verbose>0)
       { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))
-        { if(CONS_UART_Free()>80) Look.WritePFLA(CONS_UART_Write);        // produce PFLAU and PFLAA for all tracked targets
+        { Look.WritePFLA(CONS_UART_Write, CONS_UART_Free());           // produce PFLAU and PFLAA for all tracked targets
           xSemaphoreGive(CONS_Mutex); }
-        Look.WritePFLA(SysLog_Line, 0, 25, 1);                            // write all PFLA'a to the console/sys-log
+        Look.WritePFLA(SysLog_Line, 0, 25, 1);                         // write all PFLA'a to the console/sys-log
       }
 #endif
 #else // WITH_PFLAA
