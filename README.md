@@ -122,6 +122,8 @@ The Wio-Tracker L1 menu is operated with the joystick center button:
 
 The menu includes aircraft type, address type and address, transmitter power, warning time, alert level, ghost mode, registration, pilot name, external-flash formatting, reset to defaults, and—when LoRaWAN is enabled—TTN registration with a QR code. Format the external flash after the first installation if flight logging is enabled.
 
+For the detailed Polish operating guide, see the [Instrukcja obsługi Wio-Tracker (PL)](docs/manuals/pl/wio-tracker.md) (draft).
+
 ## BLE NMEA Output
 
 When `WITH_BLE_SPP` is enabled, the device advertises a BLE NMEA port compatible with apps that look for:
