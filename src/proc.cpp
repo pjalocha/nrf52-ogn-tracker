@@ -1215,17 +1215,19 @@ void vTaskPROC(void* pvParameters)
       static uint8_t TxBackOff=0;
       if(TxBackOff) TxBackOff--;
       else
-      { if(!GhostSilent) OGN_TxFIFO.Write();                                                // complete the write into the TxFIFO
+      { if(Parameters.TxOGN && !GhostSilent) OGN_TxFIFO.Write();              // complete the write into the TxFIFO
         TxBackOff = 0;
         if(AlarmLevel==0 && AverSpeed<10 && !FloatAcft) TxBackOff += 3+(Random.RX&0x1);
         if(Radio_TxCredit<=0) TxBackOff+=1; }
       Position->Sent=1;
 #ifdef WITH_ADSL
       XorShift32(Random.RX);
-      ADSL_Packet *AdslPacket=0;                                               // keep the pointer to the
+      ADSL_Packet *AdslPacket=0;
       { static uint8_t TxBackOff=0;
         if(TxBackOff) TxBackOff--;
-        else if(!GhostSilent && (Radio_FreqPlan.Plan<=1 || Radio_FreqPlan.Plan==4)) // ADS-L only in Europe/Africa or NZ
+        else if(Parameters.TxADSL && Parameters.AcftType<15                    // no ADS-L position for fix-object
+                && !GhostSilent
+                && (Radio_FreqPlan.Plan<=1 || Radio_FreqPlan.Plan==4))         // ADS-L only in Europe/Africa or NZ
         { AdslPacket = ADSL_TxFIFO.getWrite();
           AdslPacket->Init();
           AdslPacket->setAddress (Parameters.Address);
@@ -1243,7 +1245,10 @@ void vTaskPROC(void* pvParameters)
 #ifdef WITH_FANET
       static uint8_t FNTbackOff=0;
       if(FNTbackOff) FNTbackOff--;
-      else if(Parameters.TxFNT && !GhostSilent && Position->isValid() && Radio_FreqPlan.Plan<=4)
+      else if(Parameters.TxFNT
+              && Parameters.AcftType<15
+              && !GhostSilent && Position->isValid()
+              && Radio_FreqPlan.Plan<=4)
       { FANET_Packet *Packet = FNT_TxFIFO.getWrite();
         Packet->setAddress(Parameters.Address);
         Position->EncodeAirPos(*Packet, Parameters.AcftType, !Parameters.Stealth);
@@ -1261,7 +1266,8 @@ void vTaskPROC(void* pvParameters)
         if(OK)
         { MSH_TxFIFO.Write();
           XorShift32(Random.RX);                                              // random for next packet time
-          MSHbackOff = 20+(Random.RX%21); }                                   // minimum 20..40 seconds
+          MSHbackOff = 20+(Random.RX%21);                                     // minimum 20..40 seconds
+          if(Parameters.AcftType) MSHbackOff+=300; }
       }
 #endif // WITH_MESHT
 #ifdef WITH_PAW
@@ -1466,7 +1472,7 @@ void vTaskPROC(void* pvParameters)
       static uint8_t StatTxPkt = 0;
       XorShift32(Random.RX);
       if(StatTxBackOff) StatTxBackOff--;
-      else if(ADSL_TxFIFO.Full()<2 )                    // decide whether to transmit the status/info packet
+      else if(Parameters.TxADSL && ADSL_TxFIFO.Full()<2 )         // decide whether to transmit the status/info packet
       { ADSL_Packet *Packet = ADSL_TxFIFO.getWrite();
         StatTxPkt++; if(StatTxPkt>3) StatTxPkt=0;
         if(getTelemetry(*Packet, Position, StatTxPkt))
