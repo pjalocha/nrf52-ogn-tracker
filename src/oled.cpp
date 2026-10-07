@@ -113,6 +113,7 @@ enum OLED_MenuState
   OLED_MenuLookOutWarnTime,
   OLED_MenuAlert,
   OLED_MenuGhost,
+  OLED_MenuTxProtocols,
   OLED_MenuTextEdit,
   OLED_MenuFormatConfirm,
   OLED_MenuDefaultsConfirm,
@@ -144,6 +145,8 @@ static uint8_t OLED_MenuTxPowerValue = 0;
 static uint8_t OLED_MenuLookOutWarnTimeValue = 0;
 static uint8_t OLED_MenuAlertValue = 0;
 static uint8_t OLED_MenuGhostValue = 0;
+static uint8_t OLED_MenuTxProtocolItem = 0;
+static uint16_t OLED_MenuTxProtocolMask = 0;
 static OLED_MenuTextField OLED_MenuText = OLED_MenuTextNone;
 static char OLED_MenuTextValue[FlashParameters::InfoParmLen];
 static uint8_t OLED_MenuTextPosition = 0;
@@ -151,7 +154,7 @@ static int OLED_MenuSaveResult = 0;
 static uint32_t OLED_MenuMessageTime = 0;
 static const char *OLED_MenuMessage = 0;
 
-static const uint8_t OLED_MenuItems = 11
+static const uint8_t OLED_MenuItems = 12
 #ifdef WITH_USB_MEMORY
   + 1
 #endif
@@ -164,6 +167,9 @@ static const uint8_t OLED_MenuItems = 11
 ;
 static const uint8_t OLED_MenuTextLength = FlashParameters::InfoParmLen-1;
 static const uint8_t OLED_MenuLookOutWarnTimes[4] = { 20, 30, 40, 50 };
+static const uint16_t OLED_TxProtocolMask = (1u<<1)|(1u<<2)|(1u<<4)|(1u<<8);
+static const uint16_t OLED_TxProtocolBits[4] = { 1u<<1, 1u<<2, 1u<<4, 1u<<8 };
+static const uint8_t OLED_MenuTxProtocolItems = 7;
 static const uint8_t OLED_MenuGestureCenter  = 1u<<4;
 static const uint8_t OLED_MenuGestureBlocked = 1u<<7;
 static uint8_t OLED_MenuGestureOwner = 0;
@@ -366,13 +372,18 @@ static void OLED_MenuEnterItem(void)
     case 10:
       OLED_Menu=OLED_MenuDefaultsConfirm;
       break;
-#ifdef WITH_USB_MEMORY
     case 11:
+      OLED_MenuTxProtocolMask=Parameters.TxProtMask&OLED_TxProtocolMask;
+      OLED_MenuTxProtocolItem=0;
+      OLED_Menu=OLED_MenuTxProtocols;
+      break;
+#ifdef WITH_USB_MEMORY
+    case 12:
       OLED_Menu=OLED_MenuUSBConfirm;
       break;
 #endif
 #ifdef WITH_LORAWAN
-    case 11
+    case 12
 #ifdef WITH_USB_MEMORY
       + 1
 #endif
@@ -514,6 +525,15 @@ static void OLED_MenuCommitItem(void)
       { OLED_MenuShowMessage("Saved", 0);
         OLED_MenuBeepSaved(); }
       break;
+    case OLED_MenuTxProtocols:
+      { uint16_t NewMask=(Parameters.TxProtMask&~OLED_TxProtocolMask)|OLED_MenuTxProtocolMask;
+        if(Parameters.TxProtMask!=NewMask)
+        { Parameters.TxProtMask=NewMask;
+          OLED_MenuSaveParameters(); }
+        else
+        { OLED_MenuShowMessage("Saved", 0);
+          OLED_MenuBeepSaved(); } }
+      break;
     case OLED_MenuTextEdit:
       { char Value[FlashParameters::InfoParmLen];
         memcpy(Value, OLED_MenuTextValue, OLED_MenuTextLength);
@@ -604,6 +624,17 @@ static void OLED_MenuHandleEvent(uint32_t Event)
   }
   if(Event&OLED_EventMenuClick)
   { if(OLED_Menu==OLED_MenuList) OLED_MenuEnterItem();
+    else if(OLED_Menu==OLED_MenuTxProtocols)
+    { if(OLED_MenuTxProtocolItem<4)
+        OLED_MenuTxProtocolMask^=OLED_TxProtocolBits[OLED_MenuTxProtocolItem];
+      else if(OLED_MenuTxProtocolItem==4)
+        OLED_MenuTxProtocolMask|=OLED_TxProtocolMask;
+      else if(OLED_MenuTxProtocolItem==5)
+        OLED_MenuTxProtocolMask&=~OLED_TxProtocolMask;
+      else
+      { OLED_Menu=OLED_MenuList;
+        OLED_PageChange=true; }
+      OLED_PageChange=true; }
     else if(OLED_Menu!=OLED_MenuClosed)
     { OLED_Menu=OLED_MenuList; OLED_PageChange=true; } }
 }
@@ -681,6 +712,15 @@ static void OLED_MenuPollJoystick(void)
   else if(OLED_Menu==OLED_MenuGhost)
   { if(Pressed&(1u<<0)) OLED_MenuChangeGhost(+1);
     if(Pressed&(1u<<1)) OLED_MenuChangeGhost(-1); }
+  else if(OLED_Menu==OLED_MenuTxProtocols)
+  { if(Pressed&(1u<<0))
+    { if(OLED_MenuTxProtocolItem==0) OLED_MenuTxProtocolItem=OLED_MenuTxProtocolItems-1;
+      else OLED_MenuTxProtocolItem--;
+      OLED_PageChange=true; }
+    if(Pressed&(1u<<1))
+    { OLED_MenuTxProtocolItem++;
+      if(OLED_MenuTxProtocolItem>=OLED_MenuTxProtocolItems) OLED_MenuTxProtocolItem=0;
+      OLED_PageChange=true; } }
   else if(OLED_Menu==OLED_MenuTextEdit)
   { uint8_t Direction=0;
     if(OLED_MenuGestureOwner==(1u<<0) && (Current&(1u<<0))) Direction=1;
@@ -761,7 +801,7 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
   u8g2_SetFont(Display, u8g2_font_7x13_tf);
   if(OLED_Menu==OLED_MenuList)
   { static const char *ItemNames[OLED_MenuItems] =
-    { "AcftType", "AddrType", "Address", "Tx power", "Warn time", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults"
+    { "AcftType", "AddrType", "Address", "Tx power", "Warn time", "Alerts", "Ghost", "Reg", "Pilot", "Format flash", "Reset defaults", "TX protocols"
 #ifdef WITH_USB_MEMORY
       , "USB memory"
 #endif
@@ -791,6 +831,23 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
       if(Item==7) { strcat(Value, " "); strcat(Value, Parameters.Reg); }
       if(Item==8) { strcat(Value, " "); strcat(Value, Parameters.Pilot); }
       u8g2_DrawStr(Display, 0, 34+12*Row, Value); }
+  }
+  else if(OLED_Menu==OLED_MenuTxProtocols)
+  { static const char *ItemNames[OLED_MenuTxProtocolItems] =
+      { "OGN", "ADS-L", "FANET", "Meshtastic", "Enable all", "Disable all", "Cancel" };
+    uint8_t First=OLED_MenuTxProtocolItem>1 ? OLED_MenuTxProtocolItem-1 : 0;
+    if(First+3>OLED_MenuTxProtocolItems) First=OLED_MenuTxProtocolItems-3;
+    u8g2_SetFont(Display, u8g2_font_6x12_tr);
+    u8g2_DrawStr(Display, 0, 11, "TX protocols");
+    for(uint8_t Row=0; Row<3; Row++)
+    { uint8_t Item=First+Row;
+      char Value[24];
+      strcpy(Value, Item==OLED_MenuTxProtocolItem ? ">" : " ");
+      strcat(Value, ItemNames[Item]);
+      if(Item<4)
+      { strcat(Value, (OLED_MenuTxProtocolMask&OLED_TxProtocolBits[Item]) ? " ON" : " OFF"); }
+      u8g2_DrawStr(Display, 0, 26+12*Row, Value); }
+    u8g2_DrawStr(Display, 0, 62, "Click=act Long=save");
   }
   else if(OLED_Menu==OLED_MenuAcftType)
   { u8g2_DrawStr(Display, 0, 25, "Aircraft type");

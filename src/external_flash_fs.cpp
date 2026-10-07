@@ -207,6 +207,10 @@ bool LogFS_format(Print &Out)
   }
 
   Out.println("ExternalFlash: formatting FAT");
+  // The log task may have mounted the volume earlier.  Drop its FAT cache
+  // before changing sectors directly, or a later cache flush can restore the
+  // old boot sector/partition table over the newly formatted one.
+  LogFS_end();
   LogFSMounted = false;
 
   if(!LogFS_formatFAT12(Out))
