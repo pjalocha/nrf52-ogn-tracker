@@ -107,7 +107,7 @@ class LookOut_Target           // describes a flying aircrafts
 
    void Print(void) const
    { if(Call[0]) printf("%-8s", Call);
-           else  printf("%08X", ID);
+           else  printf("%08lX", ID);
      printf("/%+5.1fs/%7.1fm/%7.1fm/%5.1fs/%5.1fm/%+5.1fs/w%d",
             0.5*Pred, 0.5*DistMargin, 0.5*HorDist, 0.5*TimeMargin, 0.5*MissDist, 0.5*MissTime, WarnLevel);
      // printf(" [%+7.1f,%+7.1f,%+7.1f]m [%+5.1f,%+5.1f,%+5.1f]m/s", 0.5*dX, 0.5*dY, 0.5*dZ, 0.5*Vx, 0.5*Vy, 0.5*Vz);
@@ -117,7 +117,7 @@ class LookOut_Target           // describes a flying aircrafts
    int Print(char *Out) const
    { int Len=0;
      if(Call[0]) Len+=sprintf(Out+Len, "%-8s", Call);
-           else  Len+=sprintf(Out+Len, "%08X", ID);
+           else  Len+=sprintf(Out+Len, "%08lX", ID);
      Len+=sprintf(Out+Len, "/%+5.1fs/%7.1fm/%7.1fm/%5.1fs/%5.1fm/%+5.1fs/w%d",
                 0.5*Pred, 0.5*DistMargin, 0.5*HorDist, 0.5*TimeMargin, 0.5*MissDist, 0.5*MissTime, WarnLevel);
      return Len; }
@@ -558,7 +558,7 @@ template <const uint8_t MaxTgts=32>
      return ProcessTarget(&New); }
 
    void setTargetCall(uint32_t Address, uint8_t AddrType, const char *Call)
-   { uint32_t ID=AddrType; ID = (ID<<=24)|Address;
+   { uint32_t ID = AddrType; ID = (ID<<24) | Address;
      uint8_t Idx=0;
      for( ; Idx<MaxTargets; Idx++)
      { if(Target[Idx].Alloc==0) continue;

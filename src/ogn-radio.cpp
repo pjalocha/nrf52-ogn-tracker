@@ -860,7 +860,7 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
     if(Parameters.Verbose>=2)
     { uint32_t msTime = millis()-GPS_TimeSync.sysTime;
       uint8_t PktLen=24; if(TxPktLen) PktLen=TxPktLen;
-      int Len=sprintf(Line, "<%10u:%4d [%d:%d] #%d %3.1fdBm ",
+      int Len=sprintf(Line, "<%10lu:%4d [%d:%d] #%d %3.1fdBm ",
           GPS_TimeSync.UTC, msTime, TxSysID, PktLen, TxChannel, TxPower);
       for(uint8_t Idx=0; Idx<PktLen; Idx++)
       { Len+=Format_Hex(Line+Len, TxPacket[Idx]); }
@@ -1544,7 +1544,7 @@ void Radio_Task(void *Parms)
     static bool WAN_Retry = false;                    // retry after a busy LoRa channel
     uint32_t TxAge = SysTime-WAN_LastTxTime;          // [ms]
     uint32_t TxAgeLimit = 200000;                     // [ms] less frequent TTN position while on the ground
-    if(Flight.inFlight()) TxAgeLimit = AlarmLevel==0 ? 20000:50000; // [ms] more frequent TTN positions while in flight
+    if(Flight.inFlight()) TxAgeLimit = LookOut_AlarmLevel==0 ? 20000:50000; // [ms] more frequent TTN positions while in flight
     TxAgeLimit += Random.Word%19999;                  // [ms] randomize
     // static uint8_t  WAN_BackOff=60;                   // [sec]
     bool WANtx = 0;
@@ -1739,7 +1739,7 @@ void Radio_Task(void *Parms)
     // Serial.printf("Radio: %us %ums %dpkt\n", TimeRef.UTC, millis()-TimeRef.sysTime, PktCountSum);
     if(TimeRef.UTC%10!=5) continue; // only print every 10sec
     int LineLen=sprintf(Line,
-     "Radio: Tx: %u:%u:%u:%u:%u:%u  Rx: %u:%u:%u:%u:%u:%u %u:%u  %u:%u:%u:%u:%u:%u  %3.1fdBm %u+%ums %u:%3.1f/s",
+     "Radio: Tx: %lu:%lu:%lu:%lu:%lu:%lu  Rx: %lu:%lu:%lu:%lu:%lu:%lu %lu:%lu  %lu:%lu:%lu:%lu:%lu:%lu  %3.1fdBm %lu+%lums %lu:%3.1f/s",
        Radio_TxCount[0], Radio_TxCount[1], Radio_TxCount[2], Radio_TxCount[4], Radio_TxCount[5], Radio_TxCount[6],
        Radio_RxCount[0], Radio_RxCount[1], Radio_RxCount[2], Radio_RxCount[4], Radio_RxCount[5], Radio_RxCount[6],
        Radio_RxCount[8], Radio_RxCount[9],

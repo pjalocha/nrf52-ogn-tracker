@@ -40,12 +40,14 @@ static GDL90_REPORT    GDL_REPORT;
 #include "mesht-proto.h"
 #endif
 
-uint8_t AlarmLevel = 0;               // current alarm level, from Lookout, 0=no alarm
+uint8_t               LookOut_AlarmLevel = 0;       // current alarm level, from Lookout, 0=no alarm
+const LookOut_Target *LookOut_AlarmTgt = 0;         // the most alarming target
+
 uint8_t GhostSilent = 0;              // if the Ghost-mode is silent
 
 static const int32_t  GhostAltitudeMargin = 350; // [m]
-static const uint32_t GhostAltitudeHold   = 30;  // [s] keep Ghost mode active after nearby traffic
-static uint32_t GhostAltitudeAlertUntil = 0;
+static const uint32_t GhostAltitudeHold    = 30;  // [s] keep Ghost mode active after nearby traffic
+static uint32_t GhostAltitudeAlertUntil    =  0;
 
 static void GhostAltitudeObserve(int32_t OtherAltitude, bool Valid, uint32_t RxTime, int32_t OwnAltitude)
 { if(!Valid) return;
@@ -505,7 +507,7 @@ static uint32_t MeshtHash(uint32_t X)
 static int getMeshNodeInfo(void)
 { Mesht_NodeInfo.Clear();
   Mesht_NodeInfo.MAC=getUniqueID();
-  sprintf(Mesht_NodeInfo.ID,    "!%08x",   (uint32_t)Mesht_NodeInfo.MAC);
+  sprintf(Mesht_NodeInfo.ID,    "!%08lx",   (uint32_t)Mesht_NodeInfo.MAC);
   sprintf(Mesht_NodeInfo.Short, "%04x",    (uint16_t)Mesht_NodeInfo.MAC);
   Mesht_NodeInfo.Role=5;                 // 5:tracker
 #if defined(WITH_TBEAM07) || defined(WITH_TBEAM10) || defined(WITH_TBEAM12)
@@ -1217,7 +1219,7 @@ void vTaskPROC(void* pvParameters)
       else
       { if(Parameters.TxOGN && !GhostSilent) OGN_TxFIFO.Write();              // complete the write into the TxFIFO
         TxBackOff = 0;
-        if(AlarmLevel==0 && AverSpeed<10 && !FloatAcft) TxBackOff += 3+(Random.RX&0x1);
+        if(LookOut_AlarmLevel==0 && AverSpeed<10 && !FloatAcft) TxBackOff += 3+(Random.RX&0x1);
         if(Radio_TxCredit<=0) TxBackOff+=1; }
       Position->Sent=1;
 #ifdef WITH_ADSL
@@ -1318,8 +1320,9 @@ void vTaskPROC(void* pvParameters)
       }
 #endif // WITH_PFLAA
       uint8_t Warn = 0;
-      if(Tgt) Warn = Tgt->WarnLevel;                                       // what is the warning level ?
-      AlarmLevel=Warn;
+      if(Tgt) Warn = Tgt->WarnLevel;                                          // what is the warning level ?
+      LookOut_AlarmTgt = Tgt;
+      LookOut_AlarmLevel=Warn;
       if( (Warn>0) /* && (AverSpeed>=10) */ )                                    // if non-zero warning level and we seem to be moving
       { // int16_t RelBearing = Look.getRelBearing(Tgt);                      // relative bearing to the Target
         // int8_t Bearing = (12*(int32_t)RelBearing+0x8000)>>16;              // [-12..+12]
@@ -1462,7 +1465,7 @@ void vTaskPROC(void* pvParameters)
     }
     if(StatTxBackOff) StatTxBackOff--;
 
-    while(OGN_TxFIFO.Full()<2 && AlarmLevel==0)                  // any received OGN positions to be relayed ?
+    while(OGN_TxFIFO.Full()<2 && LookOut_AlarmLevel==0)                  // any received OGN positions to be relayed ?
     { OGN_TxPacket<OGN_Packet> *RelayPacket = OGN_TxFIFO.getWrite();
       if(!GetRelayPacket(RelayPacket)) break;
       OGN_TxFIFO.Write(); }
@@ -1481,7 +1484,7 @@ void vTaskPROC(void* pvParameters)
           ADSL_TxFIFO.Write(); }
         StatTxBackOff = GhostSilent ? 2+Random.RX%3:10+Random.RX%5; }
     }
-    while(ADSL_TxFIFO.Full()<2 && AlarmLevel==0)         // any received ADS-L pasition to be relayed ?
+    while(ADSL_TxFIFO.Full()<2 && LookOut_AlarmLevel==0)         // any received ADS-L pasition to be relayed ?
     { ADSL_Packet *RelayPacket = ADSL_TxFIFO.getWrite();
       if(!GetRelayPacket(RelayPacket)) break;
       ADSL_TxFIFO.Write(); }

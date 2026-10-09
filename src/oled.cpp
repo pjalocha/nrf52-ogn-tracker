@@ -209,6 +209,10 @@ static void OLED_SetPowerSave(bool PowerSave);
 #endif
 static void OLED_PreviousPage(void);
 static void OLED_NextPage(void);
+#ifdef WITH_LOOKOUT
+static bool OLED_AlarmPageActive(void);
+static void OLED_DrawAlarm(u8g2_t *Display);
+#endif
 
 static void OLED_MenuBeepOpen(void)
 { Play(Play_Vol_1 | Play_Oct_0 | 0x05, 80); }
@@ -1048,6 +1052,15 @@ static int OLED_DrawPage(const GPS_Position *GPS)
       xSemaphoreGive(I2C_Mutex); }
     return 1; }
 #endif
+#ifdef WITH_LOOKOUT
+  if(OLED_AlarmPageActive())
+  { OLED.clearBuffer();
+    OLED_DrawAlarm(OLED.getU8g2());
+    if(xSemaphoreTake(I2C_Mutex, 50))
+    { OLED.sendBuffer();
+      xSemaphoreGive(I2C_Mutex); }
+    return 1; }
+#endif
   if(OLED_PageOFF) return 1;
   if(!OLED_PageAvailable(OLED_Page)) return 0;
   OLED.clearBuffer();
@@ -1157,6 +1170,13 @@ void OLED_Task(void *Parms)
   vTaskDelay(pdMS_TO_TICKS(2000)); // leave the startup logo visible briefly
 
   GPS_Position *PrevGPS=0;
+#ifdef WITH_LOOKOUT
+  bool PrevAlarmPage=false;
+  const LookOut_Target *PrevAlarmTgt=0;
+  uint8_t PrevAlarmLevel=0;
+  int16_t PrevAlarmBearing=0;
+  uint32_t PrevAlarmDistance=0;
+#endif
   for( ; ; )
   {
     TaskWatchdog_Heartbeat(TaskWatchdog_OLED);
@@ -1193,6 +1213,30 @@ void OLED_Task(void *Parms)
 #endif
     if(Events&OLED_EventTakeoff) OLED_HandleTakeoff();
 
+#ifdef WITH_LOOKOUT
+    bool AlarmPage=OLED_AlarmPageActive();
+    const LookOut_Target *AlarmTgt=AlarmPage ? LookOut_AlarmTgt : 0;
+    uint8_t AlarmLevel=AlarmPage ? LookOut_AlarmLevel : 0;
+    int16_t AlarmBearing=AlarmTgt ? Look.getRelBearing(AlarmTgt) : 0;
+    uint32_t AlarmDistance=AlarmTgt ? Look.getHorDist(AlarmTgt) : 0;
+    if(AlarmPage!=PrevAlarmPage || (AlarmPage &&
+       (AlarmTgt!=PrevAlarmTgt || AlarmLevel!=PrevAlarmLevel ||
+        AlarmBearing!=PrevAlarmBearing || AlarmDistance!=PrevAlarmDistance)))
+    { OLED_PageChange=true;
+      if(AlarmPage && !PrevAlarmPage)
+      { OLED_PageOFF=false;
+        OLED_SetPowerSave(false);
+#ifdef WITH_OLED_DIM
+        OLED_PageActive=millis();
+#endif
+      }
+      PrevAlarmPage=AlarmPage;
+      PrevAlarmTgt=AlarmTgt;
+      PrevAlarmLevel=AlarmLevel;
+      PrevAlarmBearing=AlarmBearing;
+      PrevAlarmDistance=AlarmDistance; }
+#endif
+
 #ifdef WITH_USB_MEMORY
     if(USBMemory_IsActive())
     { OLED.clearBuffer();
@@ -1213,6 +1257,12 @@ void OLED_Task(void *Parms)
       uint32_t msTime = millis();
       bool USBpowered = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk)!=0;
       bool GPSlocked = GPS && GPS->isValid();
+#ifdef WITH_LOOKOUT
+      if(OLED_AlarmPageActive())
+      { OLED_PageOFF=false;
+        OLED_PageActive=msTime; }
+      else
+#endif
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
       if(OLED_MenuActive())
       { OLED_PageOFF=false;
@@ -1420,7 +1470,7 @@ void OLED_DrawGPS(u8g2_t *OLED, const GPS_Position *GPS)  // GPS time, position,
 void OLED_DrawID(u8g2_t *OLED, const GPS_Position *GPS)
 { char Line[128];
   u8g2_SetFont(OLED, u8g2_font_9x15_tr);
-  sprintf(Line, "%s:%c:%06X", Parameters.AcftTypeName(), Parameters.AddrTypeChar(), Parameters.Address);
+  sprintf(Line, "%s:%c:%06lX", Parameters.AcftTypeName(), Parameters.AddrTypeChar(), Parameters.Address);
   u8g2_DrawStr(OLED, 0, 25, Line);
   // Parameters.Print(Line); Line[10]=0;
   // u8g2_DrawStr(OLED, 26, 25, Line);
@@ -1525,15 +1575,15 @@ void OLED_DrawRFcounts(u8g2_t *OLED, const GPS_Position *GPS)
   u8g2_SetFont(OLED, u8g2_font_6x12_tr);         // small font
   int Vert=28;
   u8g2_DrawStr(OLED, 40, Vert-8, "Tx       Rx");
-  sprintf(Line, "FLR:%7d %9d", Radio_TxCount[0], Radio_RxCount[0]);
+  sprintf(Line, "FLR:%7lu %9lu", Radio_TxCount[0], Radio_RxCount[0]);
   u8g2_DrawStr(OLED, 0, Vert, Line); Vert+=9;
-  sprintf(Line, "OGN:%7d %9d", Radio_TxCount[1], Radio_RxCount[1]);
+  sprintf(Line, "OGN:%7lu %9lu", Radio_TxCount[1], Radio_RxCount[1]);
   u8g2_DrawStr(OLED, 0, Vert, Line); Vert+=9;
-  sprintf(Line, "MDR:%7d %9d", Radio_TxCount[2], Radio_RxCount[2]);
+  sprintf(Line, "MDR:%7lu %9lu", Radio_TxCount[2], Radio_RxCount[2]);
   u8g2_DrawStr(OLED, 0, Vert, Line); Vert+=9;
-  sprintf(Line, "LDR:%7d %9d", Radio_TxCount[5], Radio_RxCount[5]);
+  sprintf(Line, "LDR:%7lu %9lu", Radio_TxCount[5], Radio_RxCount[5]);
   u8g2_DrawStr(OLED, 0, Vert, Line); Vert+=9;
-  sprintf(Line, "HDR:%7d %9d", Radio_TxCount[6], Radio_RxCount[6]);
+  sprintf(Line, "HDR:%7lu %9lu", Radio_TxCount[6], Radio_RxCount[6]);
   u8g2_DrawStr(OLED, 0, Vert, Line); Vert+=9;
 // #ifdef WITH_FANET
 //   sprintf(Line, "FNT:%7d %9d", Radio_TxCount[4], Radio_RxCount[4]);
@@ -1767,24 +1817,21 @@ static int16_t OLED_ClipInt16(int32_t Value)
   if(Value<-32768) return -32768;
   return Value; }
 
-static uint16_t OLED_ReturnBearing(int32_t East, int32_t North)
-{ while((East>16000) || (East< -16000) || (North>16000) || (North< -16000))
-  { East/=2; North/=2; }
-  return (uint16_t)IntAtan2((int16_t)East, (int16_t)North); }
-
-static void OLED_DrawReturnCardinal(u8g2_t *Display, char Cardinal, uint16_t Angle)
-{ const int16_t Xc=29, Yc=39, Radius=15;
-  int16_t X=(int16_t)(((int32_t)Radius*Isin((int16_t)Angle)+0x800)>>12);
+static void OLED_DrawDirectionCardinal(u8g2_t *Display, char Cardinal,
+                                       int16_t Xc, int16_t Yc,
+                                       int16_t Radius, uint16_t Angle)
+{ int16_t X=(int16_t)(((int32_t)Radius*Isin((int16_t)Angle)+0x800)>>12);
   int16_t Y=(int16_t)(((int32_t)Radius*Icos((int16_t)Angle)+0x800)>>12);
   char Text[2]={Cardinal, 0};
   u8g2_DrawStr(Display, Xc+X-4, Yc-Y+4, Text); }
 
-static void OLED_DrawReturnPointer(u8g2_t *Display, uint16_t Angle)
-{ const int16_t Xc=29, Yc=39, TipRadius=13, BaseRadius=4, HalfWidth=3;
-  int16_t Sin=Isin((int16_t)Angle), Cos=Icos((int16_t)Angle);
-  int16_t TipX = Xc+(((int32_t)TipRadius*Sin+0x800)>>12);
-  int16_t TipY = Yc-(((int32_t)TipRadius*Cos+0x800)>>12);
-  int16_t TailX = Xc-(TipX-Xc), TailY = Yc-(TipY-Yc);
+static void OLED_DrawNavigationArrow(u8g2_t *Display, int16_t Xc, int16_t Yc,
+                                     int16_t TipRadius, int16_t BaseRadius,
+                                     int16_t HalfWidth, uint16_t Angle)
+{ int16_t Sin=Isin((int16_t)Angle), Cos=Icos((int16_t)Angle);
+  int16_t TipX=Xc+(((int32_t)TipRadius*Sin+0x800)>>12);
+  int16_t TipY=Yc-(((int32_t)TipRadius*Cos+0x800)>>12);
+  int16_t TailX=Xc-(TipX-Xc), TailY=Yc-(TipY-Yc);
   int16_t BaseX=Xc+(((int32_t)BaseRadius*Sin+0x800)>>12);
   int16_t BaseY=Yc-(((int32_t)BaseRadius*Cos+0x800)>>12);
   int16_t SideX=((int32_t)HalfWidth*Cos+0x800)>>12;
@@ -1792,6 +1839,64 @@ static void OLED_DrawReturnPointer(u8g2_t *Display, uint16_t Angle)
   u8g2_DrawLine(Display, TailX, TailY, TipX, TipY);
   u8g2_DrawTriangle(Display, TipX, TipY, BaseX+SideX, BaseY+SideY,
                      BaseX-SideX, BaseY-SideY); }
+
+static void OLED_DrawNavigationRose(u8g2_t *Display, int16_t Xc, int16_t Yc,
+                                    int16_t Radius, int16_t LabelRadius,
+                                    uint16_t Rotation)
+{ u8g2_SetFont(Display, u8g2_font_7x13_tf);
+  u8g2_DrawCircle(Display, Xc, Yc, Radius, U8G2_DRAW_ALL);
+  OLED_DrawDirectionCardinal(Display, 'N', Xc, Yc, LabelRadius, (uint16_t)(0x0000-Rotation));
+  OLED_DrawDirectionCardinal(Display, 'E', Xc, Yc, LabelRadius, (uint16_t)(0x4000-Rotation));
+  OLED_DrawDirectionCardinal(Display, 'S', Xc, Yc, LabelRadius, (uint16_t)(0x8000-Rotation));
+  OLED_DrawDirectionCardinal(Display, 'W', Xc, Yc, LabelRadius, (uint16_t)(0xC000-Rotation)); }
+
+static void OLED_DrawNavigationCompass(u8g2_t *Display, int16_t Xc, int16_t Yc,
+                                       int16_t Radius, int16_t LabelRadius,
+                                       uint16_t Rotation, uint16_t PointerAngle,
+                                       int16_t TipRadius, int16_t BaseRadius,
+                                       int16_t HalfWidth)
+{ OLED_DrawNavigationRose(Display, Xc, Yc, Radius, LabelRadius, Rotation);
+  OLED_DrawNavigationArrow(Display, Xc, Yc, TipRadius, BaseRadius, HalfWidth, PointerAngle); }
+
+#ifdef WITH_LOOKOUT
+static bool OLED_AlarmPageActive(void)
+{ uint8_t Threshold=Parameters.AlertThresh;
+  if(Threshold>=4 || !LookOut_AlarmTgt) return false;
+  if(LookOut_AlarmLevel<(Threshold ? Threshold : 1)) return false;
+  return LookOut_AlarmTgt->Alloc && LookOut_AlarmTgt->WarnLevel>0; }
+
+static void OLED_DrawAlarm(u8g2_t *Display)
+{ const LookOut_Target *Tgt=LookOut_AlarmTgt;
+  if(!Tgt || !Tgt->Alloc) return;
+
+  char Distance[8];
+  uint32_t HorDist=Look.getHorDist(Tgt);
+  int16_t Bearing=Look.getRelBearing(Tgt);
+  sprintf(Distance, "%lu", (unsigned long)HorDist);
+
+  // u8g2_SetFont(Display, u8g2_font_6x12_tr);
+  // sprintf(Line, "ALERT L%d", (int)LookOut_AlarmLevel);
+  // u8g2_DrawStr(Display, 66, 12, Line);
+
+  OLED_DrawNavigationCompass(Display, 31, 32, 28, 21,
+                             (uint16_t)Look.Pos.Heading, (uint16_t)Bearing,
+                             26, 7, 5);
+
+  u8g2_SetFont(Display, u8g2_font_9x15_tr);
+  sprintf(Line, "%3.1fs", 0.5*Tgt->MissTime);
+  u8g2_DrawStr(Display, 80, 29, Line);
+  u8g2_SetFont(Display, u8g2_font_fub20_tr);
+  uint8_t Width=u8g2_GetStrWidth(Display, Distance);
+  u8g2_DrawStr(Display, 126-Width, 60, Distance);
+  // u8g2_SetFont(Display, u8g2_font_7x13_tf);
+  // u8g2_DrawStr(Display, 106, 62, "m");
+}
+#endif
+
+static uint16_t OLED_ReturnBearing(int32_t East, int32_t North)
+{ while((East>16000) || (East< -16000) || (North>16000) || (North< -16000))
+  { East/=2; North/=2; }
+  return (uint16_t)IntAtan2((int16_t)East, (int16_t)North); }
 
 void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
 { char Line[24];
@@ -1802,12 +1907,7 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
   uint16_t TrackAngle=(uint16_t)(((uint32_t)Heading*65536u+1800u)/3600u);
   uint16_t Rotation=GPSvalid ? TrackAngle : 0;
 
-  u8g2_SetFont(Display, u8g2_font_7x13_tf);
-  u8g2_DrawCircle(Display, Xc, Yc, Radius, U8G2_DRAW_ALL);
-  OLED_DrawReturnCardinal(Display, 'N', (uint16_t)(0x0000-Rotation));
-  OLED_DrawReturnCardinal(Display, 'E', (uint16_t)(0x4000-Rotation));
-  OLED_DrawReturnCardinal(Display, 'S', (uint16_t)(0x8000-Rotation));
-  OLED_DrawReturnCardinal(Display, 'W', (uint16_t)(0xC000-Rotation));
+  OLED_DrawNavigationRose(Display, Xc, Yc, Radius, 15, Rotation);
 
   u8g2_SetFont(Display, u8g2_font_6x12_tr);
   if(!GPSvalid)
@@ -1840,7 +1940,8 @@ void OLED_DrawReturn(u8g2_t *Display, const GPS_Position *GPS)
                                              GPS->LatitudeCosine);
   uint32_t Distance=IntDistance(East, North);
   uint16_t Bearing=(Distance>=10) ? OLED_ReturnBearing(East, North) : 0;
-  if(Distance>=10) OLED_DrawReturnPointer(Display, (uint16_t)(Bearing-Rotation));
+  if(Distance>=10)
+    OLED_DrawNavigationArrow(Display, Xc, Yc, 13, 4, 3, (uint16_t)(Bearing-Rotation));
 
   uint32_t BearingDegrees=(((uint32_t)Bearing*360u+32768u)>>16)%360u;
   if(Distance<1000u)

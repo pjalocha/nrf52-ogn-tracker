@@ -351,7 +351,7 @@ int PPS_Print(char *Line)
   UTC -= PPSage/1000;
   // Serial.printf(" => PPSage:%u UTC:%u\n", PPSage, UTC);
   if(PPS_Intr_Count>=10 && PPSage<=20000)
-    Len=sprintf(Line, "SatPPS: %08X:%08X/16MHz/%3.1fus %+3.1fppm %3.1fus %ds",
+    Len=sprintf(Line, "SatPPS: %08lX:%08lX/16MHz/%3.1fus %+3.1fppm %3.1fus %lds",
               UTC, PPS_usPrecTime,
               (1.0/4)*IntSqrt(PPS_usTimeRMS),
               (-1.0/16)*PPS_usPeriodErr, (1.0/4)*IntSqrt(PPS_usPeriodRMS),

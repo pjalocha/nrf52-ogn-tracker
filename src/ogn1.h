@@ -361,7 +361,7 @@ class __attribute__((packed, aligned(4))) OGN1_Packet  // Packet structure for t
 
   int Meteo_DBreport(char *Line, double Time, uint32_t ID, float RSSI) const
   { int Len=0;
-    Len+=sprintf(Line+Len, "%14.3f;%d;;%3.1f;", Time, ID, RSSI);                        // time, ID, no radio channel, radio RSSI
+    Len+=sprintf(Line+Len, "%14.3f;%ld;;%3.1f;", Time, ID, RSSI);                        // time, ID, no radio channel, radio RSSI
     if(Meteo.hasWind) Len+=sprintf(Line+Len, ";%03d;%3.1f;%3.1f;",                      // wind-direction [deg], wind speed [kt]
                             ((uint16_t)Meteo.WindDir*90+32)>>6, 0.86898*Meteo.WindSpeed, 0.86898*Meteo.WindGust);
                  else Len+=sprintf(Line+Len, ";;;;");
