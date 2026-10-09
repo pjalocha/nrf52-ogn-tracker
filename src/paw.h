@@ -111,7 +111,7 @@ class __attribute__((packed, aligned(4))) PAW_Packet
      Latitude  = (0.0001f/60)*Packet.DecodeLatitude();     // [deg]
      Longitude = (0.0001f/60)*Packet.DecodeLongitude();    // [deg]
      SeqMsg = 0;
-     setCRC();
+     setCRC();                                             // set internal XOR-CRC
      return 1; }
 
    int WriteStxJSON(char *JSON) const

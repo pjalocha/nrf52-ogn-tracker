@@ -1276,11 +1276,12 @@ void vTaskPROC(void* pvParameters)
       XorShift32(Random.RX);
       static uint8_t PAW_BackOff=0;
       if(PAW_BackOff) PAW_BackOff--;
-      else if(Parameters.TxFNT && !GhostSilent && Position->isValid() && Radio_FreqPlan.Plan<=1 && FNT_TxFIFO.Full()==0)
+      else if(Parameters.TxOGN && !GhostSilent && Position->isValid() && Radio_FreqPlan.Plan<=1 && PAW_TxFIFO.Full()==0)
       { PAW_Packet *TxPacket = PAW_TxFIFO.getWrite();                    // get place for a new PAW packet in the transmitter queue
         int Good=TxPacket->Read(PosPacket.Packet);                       // convert OGN position packet to PilotAware
         if(Good)
-        { PAW_TxFIFO.Write();                                            // complete the write into the transmitter queue
+        { TxPacket->Whiten();
+          PAW_TxFIFO.Write();                                            // complete the write into the transmitter queue
           PAW_BackOff = 3+Random.RX%3; }                                 // randomly choose time to transmit next PAW packet
       }
 #endif

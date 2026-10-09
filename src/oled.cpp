@@ -72,6 +72,19 @@ static const uint8_t OLED_Pages             = OLED_Page_AfterStats+1;
 static uint8_t OLED_Page                   = 0;
 static bool OLED_PageChange                = false;
 static bool OLED_PageOFF                   = false;
+#ifdef WITH_LOOKOUT
+struct OLED_AlarmInfo
+{ uint8_t Level;
+  uint16_t Heading;
+  int16_t Bearing;
+  uint16_t Distance;
+  int16_t MissTime; };
+static OLED_AlarmInfo OLED_Alarm={0, 0, 0, 0, 0};
+static bool OLED_AlarmVisible=false;
+static bool OLED_AlarmClearPending=false;
+static uint32_t OLED_AlarmClearSince=0;
+static const uint32_t OLED_AlarmClearHold=2000; // [ms] suppress brief warning dropouts
+#endif
 uint8_t OLED_Rotate                        = 0;
 #ifdef WITH_OLED_DIM
 static uint32_t OLED_PageActive            = 0;
@@ -210,7 +223,8 @@ static void OLED_SetPowerSave(bool PowerSave);
 static void OLED_PreviousPage(void);
 static void OLED_NextPage(void);
 #ifdef WITH_LOOKOUT
-static bool OLED_AlarmPageActive(void);
+static bool OLED_AlarmCondition(const LookOut_Target *Tgt, uint8_t Level);
+static bool OLED_UpdateAlarmPage(uint32_t Now);
 static void OLED_DrawAlarm(u8g2_t *Display);
 #endif
 
@@ -1053,7 +1067,7 @@ static int OLED_DrawPage(const GPS_Position *GPS)
     return 1; }
 #endif
 #ifdef WITH_LOOKOUT
-  if(OLED_AlarmPageActive())
+  if(OLED_AlarmVisible)
   { OLED.clearBuffer();
     OLED_DrawAlarm(OLED.getU8g2());
     if(xSemaphoreTake(I2C_Mutex, 50))
@@ -1170,13 +1184,6 @@ void OLED_Task(void *Parms)
   vTaskDelay(pdMS_TO_TICKS(2000)); // leave the startup logo visible briefly
 
   GPS_Position *PrevGPS=0;
-#ifdef WITH_LOOKOUT
-  bool PrevAlarmPage=false;
-  const LookOut_Target *PrevAlarmTgt=0;
-  uint8_t PrevAlarmLevel=0;
-  int16_t PrevAlarmBearing=0;
-  uint32_t PrevAlarmDistance=0;
-#endif
   for( ; ; )
   {
     TaskWatchdog_Heartbeat(TaskWatchdog_OLED);
@@ -1214,27 +1221,17 @@ void OLED_Task(void *Parms)
     if(Events&OLED_EventTakeoff) OLED_HandleTakeoff();
 
 #ifdef WITH_LOOKOUT
-    bool AlarmPage=OLED_AlarmPageActive();
-    const LookOut_Target *AlarmTgt=AlarmPage ? LookOut_AlarmTgt : 0;
-    uint8_t AlarmLevel=AlarmPage ? LookOut_AlarmLevel : 0;
-    int16_t AlarmBearing=AlarmTgt ? Look.getRelBearing(AlarmTgt) : 0;
-    uint32_t AlarmDistance=AlarmTgt ? Look.getHorDist(AlarmTgt) : 0;
-    if(AlarmPage!=PrevAlarmPage || (AlarmPage &&
-       (AlarmTgt!=PrevAlarmTgt || AlarmLevel!=PrevAlarmLevel ||
-        AlarmBearing!=PrevAlarmBearing || AlarmDistance!=PrevAlarmDistance)))
+    bool WasAlarmVisible=OLED_AlarmVisible;
+    if(OLED_UpdateAlarmPage(millis()))
     { OLED_PageChange=true;
-      if(AlarmPage && !PrevAlarmPage)
+      if(OLED_AlarmVisible && !WasAlarmVisible)
       { OLED_PageOFF=false;
         OLED_SetPowerSave(false);
 #ifdef WITH_OLED_DIM
         OLED_PageActive=millis();
 #endif
       }
-      PrevAlarmPage=AlarmPage;
-      PrevAlarmTgt=AlarmTgt;
-      PrevAlarmLevel=AlarmLevel;
-      PrevAlarmBearing=AlarmBearing;
-      PrevAlarmDistance=AlarmDistance; }
+    }
 #endif
 
 #ifdef WITH_USB_MEMORY
@@ -1258,7 +1255,7 @@ void OLED_Task(void *Parms)
       bool USBpowered = (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk)!=0;
       bool GPSlocked = GPS && GPS->isValid();
 #ifdef WITH_LOOKOUT
-      if(OLED_AlarmPageActive())
+      if(OLED_AlarmVisible)
       { OLED_PageOFF=false;
         OLED_PageActive=msTime; }
       else
@@ -1859,31 +1856,55 @@ static void OLED_DrawNavigationCompass(u8g2_t *Display, int16_t Xc, int16_t Yc,
   OLED_DrawNavigationArrow(Display, Xc, Yc, TipRadius, BaseRadius, HalfWidth, PointerAngle); }
 
 #ifdef WITH_LOOKOUT
-static bool OLED_AlarmPageActive(void)
+static bool OLED_AlarmCondition(const LookOut_Target *Tgt, uint8_t Level)
 { uint8_t Threshold=Parameters.AlertThresh;
-  if(Threshold>=4 || !LookOut_AlarmTgt) return false;
-  if(LookOut_AlarmLevel<(Threshold ? Threshold : 1)) return false;
-  return LookOut_AlarmTgt->Alloc && LookOut_AlarmTgt->WarnLevel>0; }
+  if(Threshold>=4 || !Tgt) return false;
+  if(Level<(Threshold ? Threshold : 1)) return false;
+  return Tgt->Alloc && Tgt->WarnLevel>0; }
+
+static bool OLED_UpdateAlarmPage(uint32_t Now)
+{ const LookOut_Target *Tgt=LookOut_AlarmTgt;
+  uint8_t Level=LookOut_AlarmLevel;
+  if(OLED_AlarmCondition(Tgt, Level))
+  { OLED_AlarmInfo Current={Level, (uint16_t)Look.Pos.Heading,
+                            Look.getRelBearing(Tgt), (uint16_t)Look.getHorDist(Tgt),
+                            Tgt->MissTime};
+    bool Changed=!OLED_AlarmVisible || Current.Level!=OLED_Alarm.Level ||
+                 Current.Heading!=OLED_Alarm.Heading || Current.Bearing!=OLED_Alarm.Bearing ||
+                 Current.Distance!=OLED_Alarm.Distance || Current.MissTime!=OLED_Alarm.MissTime;
+    OLED_Alarm=Current;
+    OLED_AlarmVisible=true;
+    OLED_AlarmClearPending=false;
+    return Changed; }
+
+  if(!OLED_AlarmVisible) return false;
+  if(Parameters.AlertThresh>=4)
+  { OLED_AlarmVisible=false;
+    OLED_AlarmClearPending=false;
+    return true; }
+  if(!OLED_AlarmClearPending)
+  { OLED_AlarmClearPending=true;
+    OLED_AlarmClearSince=Now;
+    return false; }
+  if((uint32_t)(Now-OLED_AlarmClearSince)<OLED_AlarmClearHold) return false;
+  OLED_AlarmVisible=false;
+  OLED_AlarmClearPending=false;
+  return true; }
 
 static void OLED_DrawAlarm(u8g2_t *Display)
-{ const LookOut_Target *Tgt=LookOut_AlarmTgt;
-  if(!Tgt || !Tgt->Alloc) return;
-
-  char Distance[8];
-  uint32_t HorDist=Look.getHorDist(Tgt);
-  int16_t Bearing=Look.getRelBearing(Tgt);
-  sprintf(Distance, "%lu", (unsigned long)HorDist);
+{ char Distance[8];
+  sprintf(Distance, "%u", (unsigned)OLED_Alarm.Distance);
 
   // u8g2_SetFont(Display, u8g2_font_6x12_tr);
   // sprintf(Line, "ALERT L%d", (int)LookOut_AlarmLevel);
   // u8g2_DrawStr(Display, 66, 12, Line);
 
   OLED_DrawNavigationCompass(Display, 31, 32, 28, 21,
-                             (uint16_t)Look.Pos.Heading, (uint16_t)Bearing,
+                             OLED_Alarm.Heading, (uint16_t)OLED_Alarm.Bearing,
                              26, 7, 5);
 
   u8g2_SetFont(Display, u8g2_font_9x15_tr);
-  sprintf(Line, "%3.1fs", 0.5*Tgt->MissTime);
+  sprintf(Line, "%3.1fs", 0.5*OLED_Alarm.MissTime);
   u8g2_DrawStr(Display, 80, 29, Line);
   u8g2_SetFont(Display, u8g2_font_fub20_tr);
   uint8_t Width=u8g2_GetStrWidth(Display, Distance);

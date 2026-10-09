@@ -1460,6 +1460,7 @@ void Radio_Task(void *Parms)
     if(FNTpacket) FNT_TxFIFO.Read();
 #endif
 
+/*
 #ifdef WITH_PAW
     PAW_Packet *PawPacket = PAW_TxFIFO.getRead();
     uint32_t FreqPAW = Radio_FreqPlan.getFreqOBAND();
@@ -1473,6 +1474,7 @@ void Radio_Task(void *Parms)
       Radio_TxPAW(*PawPacket); }
     if(PawPacket) PAW_TxFIFO.Read();
 #endif
+*/
 
     const OGN_TxPacket<OGN_Packet> *OgnPacket1 = OGN_TxFIFO.getRead();   // 1st OGN packet (possibly NULL)
     if(OgnPacket1) OGN_TxFIFO.Read();
@@ -1487,6 +1489,11 @@ void Radio_Task(void *Parms)
     if(AdslPacket2) { ADSL_TxFIFO.Read(); }
     //            else { AdslPacket2=AdslPacket1; }
     if(Random.RX&8) Swap(AdslPacket1, AdslPacket2);
+
+#ifdef WITH_PAW
+    const PAW_Packet *PawPacket = PAW_TxFIFO.getRead();
+    if(PawPacket) PAW_TxFIFO.Read();
+#endif
 
     bool EU = Radio_FreqPlan.Plan<=1;
     bool NZ = Radio_FreqPlan.Plan==4;
@@ -1505,10 +1512,14 @@ void Radio_Task(void *Parms)
     { int Alt = (GPS_Altitude+GPS_GeoidSepar+5)/10;                       // [m] HAE
       TxChan = ADSL_HopChannel(TimeRef.UTC%60, Alt);                      // TxChan = 0..3
       if(TxChan>2) TxChan=2;
-           if(TxChan==FLR_Chan) { TxPkt=ADSL_Pkt; TxProt=Radio_SysID_ADSL; RxProt=Radio_SysID_FLR_ADSL; }           // 0
-      else if(TxChan==OGN_Chan) { TxPkt=OGN_Pkt;  TxProt=Radio_SysID_OGN;  RxProt=Radio_SysID_OGN_ADSL; }           // 1
-      else /* if(TxChan==2) */  { TxPwr+=13; TxPkt=ADSL_Pkt; TxProt=Radio_SysID_LDR;  RxProt=Radio_SysID_LDR; }           // 2
-      // else                { TxPwr+=13; TxPkt=ADSL_Pkt; TxProt=Radio_SysID_HDR;  RxProt=Radio_SysID_HDR; TxChan=2; } // 3
+           if(TxChan==FLR_Chan) { TxPkt=ADSL_Pkt; TxProt=Radio_SysID_ADSL; RxProt=Radio_SysID_FLR_ADSL; }  // 0
+      else if(TxChan==OGN_Chan) { TxPkt=OGN_Pkt;  TxProt=Radio_SysID_OGN;  RxProt=Radio_SysID_OGN_ADSL; }  // 1
+      else                                                                                                 // 2 (or 3)
+      { TxPwr+=13; TxPkt=ADSL_Pkt; TxProt=Radio_SysID_LDR;  RxProt=Radio_SysID_LDR;
+#ifdef WITH_PAW
+        if(PawPacket) TxPkt=PawPacket->Byte;
+#endif
+      }
     }
     else if(NZ)                                                            // New Zealand
     { TxChan = Radio_FreqPlan.HopChan1(TimeRef.UTC);
