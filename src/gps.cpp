@@ -240,7 +240,8 @@ static void GPS_BurstStart(int CharDelay=0)  // when GPS starts sending the data
   Burst_Tick=xTaskGetTickCount();
   GPS_TimeSync.Norm(Burst_Tick);
   if(CharDelay) Burst_Tick -= (CharDelay*10000UL)/GPS_BaudRate;          // [ms] correct for the data already received on the GPS port
-  // Serial.printf("GPS_BurstStart(%d) Burst_Tick:%u\n", CharDelay, Burst_Tick);
+  // Serial.printf("GPS_BurstStart(%d) Burst_Tick-SysTime:%lums Sync:%lus:%lums\n",
+  //    CharDelay, Burst_Tick-GPS_TimeSync.sysTime, GPS_TimeSync.UTC, GPS_TimeSync.sysTime); ///
 #ifdef DEBUG_PRINT
   if(xSemaphoreTake(CONS_Mutex, 25))
   { Format_UnsDec(CONS_UART_Write, TimeSync_Time(Burst_Tick)%60, 2);
@@ -520,7 +521,10 @@ static void GPS_BurstComplete(void)                                   // when GP
         int32_t msDiff = GPS_Pos[GPS_PosIdx].mSec;                         // [ms] fractional second time by the GPS
         if(msDiff>=500) { msDiff-=1000; UnixTime++; }                                      // [ms]
         // Serial.printf("TimeSync_SoftPPS(%u, %u, %d+%d)\n", Burst_Tick, UnixTime, msDiff, Parameters.PPSdelay);
-        TimeSync_SoftPPS(Burst_Tick, UnixTime, msDiff+Parameters.PPSdelay);
+        int32_t PPSdelay = GPS_Satellites*10+20;
+        if(GPS_SatCnt) PPSdelay=GPS_SatCnt*9+10;                           // heuristic estimate of the BurstStart delay
+        TimeSync_SoftPPS(Burst_Tick, UnixTime, msDiff+PPSdelay);
+        // TimeSync_SoftPPS(Burst_Tick, UnixTime, msDiff+Parameters.PPSdelay);  // this is estimate by a setable parameter
         // Serial.printf("GPS_TimeSync: %ums <=> %us\n", GPS_TimeSync.sysTime, GPS_TimeSync.UTC);
         // if(abs(msDiff)<=200)                                               // if (almost) full-second burst
         // { // TickType_t PPS_Age = Burst_Tick-PPS_Tick;

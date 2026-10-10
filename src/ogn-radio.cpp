@@ -1351,15 +1351,16 @@ void Radio_Task(void *Parms)
     // if(msTime>=1000) msTime-=1000;                             // [ms] correct if there was no PPS update
     uint32_t msTime = TimeRef.getFracTime(millis());
     uint32_t msTimeLeft = 0;
-    if(Slot1_Start>msTime) msTimeLeft=Slot1_Start-msTime;                      // [ms] time left for the uplink slot
+    if(Slot1_Start>msTime) msTimeLeft=Slot1_Start-msTime;         // [ms] time left for the M-Band slot
     // Serial.printf("HDR slot: %u:%4d => %3dms before direct\n", TimeRef.UTC, msTime, msTimeLeft); ///
 
     // msTime = millis()-TimeRef.sysTime;
     // msTime = TimeRef.getFracTime(millis());
 
+    // Serial.printf("Mark: MSHT: %03lu (%03lu) ms\n", msTime, msTimeLeft); ///
 #ifdef WITH_MESHT
     uint32_t FreqMSH = Radio_FreqPlan.getFreqMESHT();           // frequency to transmit Meshtastic
-    if(FreqMSH && Parameters.TxMSHT && MSH_TxFIFO.Full())
+    if(msTimeLeft>=25 && FreqMSH && Parameters.TxMSHT && MSH_TxFIFO.Full())
     { Radio_ConfigMESHT();
       Radio_setFrequency(1e-6*FreqMSH);
       MESHT_Packet *MSHpacket = MSH_TxFIFO.getRead();
@@ -1375,9 +1376,14 @@ void Radio_Task(void *Parms)
     }
 #endif
 
+    msTime = TimeRef.getFracTime(millis());
+    msTimeLeft = 0;
+    if(Slot1_Start>msTime) msTimeLeft=Slot1_Start-msTime;         // [ms] time left for the M-Band slot
+
+    // Serial.printf("Mark: FNT/HDR: %03lu ms\n", TimeRef.getFracTime(millis())); ///
 #ifdef WITH_FANET_SLOT
     uint32_t FreqFNT = Radio_FreqPlan.getFreqFANET();            // frequency to transmit FANET
-    if(FreqFNT)
+    if(msTimeLeft>25 && FreqFNT)
     { float BW=250.0f; if(Radio_FreqPlan.Plan>1) BW=500.0f;      // for plans 2,3 and 4 bandwidth 500kHz
       Radio_ConfigFANET(BW);
       Radio_setFrequency(1e-6*FreqFNT);
@@ -1405,7 +1411,7 @@ void Radio_Task(void *Parms)
     // else
 #else
     uint32_t FreqHDR = Radio_FreqPlan.getFreqOBAND();
-    if(FreqHDR)
+    if(msTimeLeft>=25 && FreqHDR)
     { uint8_t RxSysID = Radio_SysID_HDR;
       uint8_t RxChannel = 2;
       uint8_t RxPktLen;
@@ -1476,6 +1482,7 @@ void Radio_Task(void *Parms)
 #endif
 */
 
+    // Serial.printf("Mark: OGN/ADS-L #1: %03lu ms\n", TimeRef.getFracTime(millis())); ///
     const OGN_TxPacket<OGN_Packet> *OgnPacket1 = OGN_TxFIFO.getRead();   // 1st OGN packet (possibly NULL)
     if(OgnPacket1) OGN_TxFIFO.Read();
     const OGN_TxPacket<OGN_Packet> *OgnPacket2 = OGN_TxFIFO.getRead();   // 2nd OGN packet (possibly NULL)
@@ -1537,7 +1544,7 @@ void Radio_Task(void *Parms)
     msTime = TimeRef.getFracTime(millis());
     uint32_t SlotLen = Slot2_Start-msTime;            // [ms] make the first slot longer, closer to ADS-L primary slot
          if(SlotLen>800) SlotLen=800;
-    else if(SlotLen<200) SlotLen=200;
+    else if(SlotLen<100) SlotLen=100;
     // Serial.printf("Slot #0: %u:%4d => %3dms\n", TimeRef.UTC, msTime, SlotLen); ///
     PktCount+=Radio_Slot(TxChan, TxPwr, SlotLen, TxPkt, TxProt, TxChan, RxProt, TimeRef);
 
@@ -1545,6 +1552,7 @@ void Radio_Task(void *Parms)
     msTime = TimeRef.getFracTime(SysTime);           // [ms] time since PPS
     SlotLen = Slot2_End-msTime;
     bool WANnearRx = 0;
+    // Serial.printf("Mark: LoRaWAN #2: %03lu (%03lu) ms\n", msTime, SlotLen); ///
 #ifdef WITH_LORAWAN
     XorShift64(Random.Word);
     static uint8_t WAN_RxPacket[LoRaWANnode::MaxPacketSize]; // keep the buffer in
@@ -1564,7 +1572,7 @@ void Radio_Task(void *Parms)
     // else if(WANdev.Enable && Parameters.TxWAN && Radio_FreqPlan.Plan<=1) // decide to transmit in this slot
     if((WAN_Retry || TxAge>TxAgeLimit) && WANdev.Enable && Parameters.TxWAN && Radio_FreqPlan.Plan<=1) // decide to transmit in this slot
     { if(WANdev.State==0 || (WANdev.State==2 && (OgnPacket1 || OgnPacket2))) WANtx=1; }
-    if(WANtx) SlotLen = 1150-msTime;                    // if decision to transmit then stop the time slot a bit earlier
+    if(WANtx) SlotLen = 1100-msTime;                       // if decision to transmit then stop the time slot a bit earlier
     else if((WANdev.State==1 || WANdev.State==3) && WAN_RxWindow) // if waiting for a reply
     { int32_t RespLeft = (int32_t)(WAN_RespTick-(uint32_t)millis()); // and the reply time getting close
       if(RespLeft>0 && RespLeft<1000)
@@ -1572,6 +1580,7 @@ void Radio_Task(void *Parms)
         if(SlotLen<100) WANnearRx=1; } }
 #endif
 
+    // Serial.printf("Mark: OGN/ADS-L #2: %03lu ms\n", TimeRef.getFracTime(millis())); ///
     OGN_Pkt  = OgnPacket2  ? OgnPacket2->Byte()      : 0;
     ADSL_Pkt = AdslPacket2 ? &(AdslPacket2->Version) : 0;
     TxPwr = Parameters.TxPower;
@@ -1602,6 +1611,7 @@ void Radio_Task(void *Parms)
     Radio_ChipTemperature = Radio.getTempRaw()+Parameters.RFchipTempCorr;
 #endif
 
+    // Serial.printf("Mark: LoRaWAN: %03lu ms\n", TimeRef.getFracTime(millis())); ///
 #ifdef WITH_LORAWAN
     if(WANtx)
     { XorShift64(Random.Word);                                        // random
@@ -1741,6 +1751,7 @@ void Radio_Task(void *Parms)
     }
 #endif
 
+    // Serial.printf("Mark: Next: %03lu ms\n", TimeRef.getFracTime(millis())); ///
     Radio_PktRate += Radio_PktUpdate*(PktCount-Radio_PktRate);
     Radio_TxCredit+= 10;                                // [ms]
     if(Radio_TxCredit>60000) Radio_TxCredit=60000;
