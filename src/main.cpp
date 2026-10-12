@@ -367,7 +367,7 @@ void GPS_UART_Init(uint32_t BaudRate)
 #if defined(GPS_PinEna)
   if(GPS_PinEna>=0)
   { pinMode(GPS_PinEna, OUTPUT);
-    digitalWrite(GPS_PinEna, HIGH); }
+    digitalWrite(GPS_PinEna, GPS_PinEna_StateOn); }
 #endif
 #if defined(GPS_PinReset)
   if(GPS_PinReset>=0)
@@ -383,8 +383,8 @@ void GPS_UART_Init(uint32_t BaudRate)
 }
 
 #ifdef GPS_PinEna
-void GPS_DISABLE(void) { digitalWrite(GPS_PinEna, LOW); }
-void GPS_ENABLE (void) { digitalWrite(GPS_PinEna, HIGH); }
+void GPS_DISABLE(void) { digitalWrite(GPS_PinEna, !GPS_PinEna_StateOn); }
+void GPS_ENABLE (void) { digitalWrite(GPS_PinEna, GPS_PinEna_StateOn); }
 #endif
 
 int GPS_UART_Full(void)

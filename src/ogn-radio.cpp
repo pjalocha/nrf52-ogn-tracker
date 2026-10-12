@@ -1356,6 +1356,10 @@ void Radio_Task(void *Parms)
   digitalWrite(Radio_PinEnable, HIGH);
   delay(10);
 #endif
+#ifdef Radio_PinPAEnable
+  pinMode(Radio_PinPAEnable, OUTPUT);
+  digitalWrite(Radio_PinPAEnable, HIGH);
+#endif
 
 #ifdef WITH_SX1276
   int State = Radio.beginFSK(868.2,          100.0,           50.0,        234.3,           14,              8);
@@ -1378,12 +1382,12 @@ void Radio_Task(void *Parms)
 #ifdef Radio_DIO2AsRfSwitch
   Radio.setDio2AsRfSwitch();
 #endif
-#ifdef Radio_PinRXEN
-#ifdef Radio_PinTXEN
+#if defined(Radio_PinRXEN) && defined(Radio_PinTXEN)
   Radio.setRfSwitchPins(Radio_PinRXEN, Radio_PinTXEN);
-#else
+#elif defined(Radio_PinRXEN)
   Radio.setRfSwitchPins(Radio_PinRXEN, RADIOLIB_NC);
-#endif
+#elif defined(Radio_PinTXEN)
+  Radio.setRfSwitchPins(RADIOLIB_NC, Radio_PinTXEN);
 #endif
   Radio_SetRxBoostedGainMode();
   // Radio.setDio1Action(IRQcall);

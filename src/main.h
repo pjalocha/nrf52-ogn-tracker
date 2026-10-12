@@ -57,10 +57,16 @@ uint32_t getUniqueAddress(void);
 #include "wio-xiao-pins.h"
 #elif defined(WITH_WIO_TRACKER)
 #include "wio-tracker-pins.h"
+#elif defined(WITH_T096)
+#include "t096-pins.h"
 #elif defined(WITH_T_ECHO)
 #include "t-echo-pins.h"
 #else
 #error "No board pin definition selected"
+#endif
+
+#ifndef GPS_PinEna_StateOn
+#define GPS_PinEna_StateOn HIGH
 #endif
 
 #if !defined(Battery_Pin) && defined(Battery_PinADC)
