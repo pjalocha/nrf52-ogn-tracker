@@ -605,6 +605,9 @@ void setup()
 #endif
 
   xTaskCreate(vTaskGPS    ,  "GPS"  ,  1000, NULL, 1, NULL);  // read data from GPS
+#ifdef WITH_LORAWAN
+  Radio_LoRaWANInit();
+#endif
   xTaskCreate(Radio_Task  ,  "RF"   ,  1500, NULL, 2, NULL);  // transmit/receive packets
   xTaskCreate(vTaskPROC   ,  "PROC" ,  1500, NULL, 1, NULL);  // process received packets, prepare packets for transmission
 #ifdef WITH_LOG

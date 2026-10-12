@@ -2,6 +2,8 @@
 
 #ifdef WITH_OGN
 
+// #define WITH_LORAWAN_DEBUG  /// to debug the TTN code
+
 #include <RadioLib.h>
 #include "ogn-radio.h"
 
@@ -103,13 +105,22 @@ static bool Radio_IRQ(void) { return digitalRead(Radio_PinIRQ1); }
  uint8_t Radio_ChipVersion     = 0x00;
  int8_t  Radio_ChipTemperature = -128;
 
-// =======================================================================================================
-
 #ifdef WITH_SX1262
 #ifndef Radio_TCXO_Voltage
 #define Radio_TCXO_Voltage 1.6
 #endif
 
+static int Radio_SetRxBoostedGainMode(void)
+{ int State=Radio.setRxBoostedGainMode(true);                          // 2mA more current but boosts sensitivity
+  if(State) return State;
+  // Semtech/Heltec/Meshtastic RX sensitivity patch for SX1262: set bit 0 of register 0x08B5.
+  Radio.mod->SPIsetRegValue(0x08B5, 0x01, 0, 0);
+  return 0; }
+#endif
+
+// =======================================================================================================
+
+#ifdef WITH_SX1262
 #define WITH_RADIO_CACHE
 #endif
 
@@ -458,7 +469,7 @@ static int Radio_ConfigManchFSK(uint8_t PktLen, bool RxMode, const uint8_t *SYNC
   if(State) ErrState=State;
 #endif
 #ifdef WITH_SX1262
-  State=Radio.setRxBoostedGainMode(true);                           // 2mA more current but boosts sensitivity
+  State=Radio_SetRxBoostedGainMode();
   if(State) ErrState=State;
 #endif
   msDead = millis()-msDead; Radio_msDeadTime += msDead;
@@ -575,7 +586,7 @@ static int Radio_ConfigLDR(uint8_t PktLen=PAW_Packet::Size+7, bool RxMode=0, con
   if(State) ErrState=State;
 #endif
 #ifdef WITH_SX1262
-  State=Radio.setRxBoostedGainMode(true);                           // 2mA more current but boosts sensitivity
+  State=Radio_SetRxBoostedGainMode();
   if(State) ErrState=State;
 #endif
   msDead = millis()-msDead; Radio_msDeadTime += msDead;
@@ -629,7 +640,7 @@ static int Radio_ConfigHDR(uint8_t PktLen, bool RxMode, const uint8_t *SYNC, uin
 #endif
 #if defined(WITH_SX1276) && defined(WITH_SX1276_AFC)
   if(RxMode)
-  { State=Radio_setRxBandwidth(250.0);                               // [kHz]  bandwidth - single side
+  { State=Radio_setRxBandwidth(250.0);                                // [kHz]  bandwidth - single side
     if(State) ErrState=State;
     State=Radio_setupAFC(250.0);
     if(State) ErrState=State; }
@@ -665,7 +676,7 @@ static int Radio_ConfigHDR(uint8_t PktLen, bool RxMode, const uint8_t *SYNC, uin
   if(State) ErrState=State;
 #endif
 #ifdef WITH_SX1262
-  State=Radio.setRxBoostedGainMode(true);                           // 2mA more current but boosts sensitivity
+  State=Radio_SetRxBoostedGainMode();
   if(State) ErrState=State;
 #endif
   msDead = millis()-msDead; Radio_msDeadTime += msDead;
@@ -861,7 +872,7 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
     { uint32_t msTime = millis()-GPS_TimeSync.sysTime;
       uint8_t PktLen=24; if(TxPktLen) PktLen=TxPktLen;
       int Len=sprintf(Line, "<%10lu:%4d [%d:%d] #%d %3.1fdBm ",
-          GPS_TimeSync.UTC, msTime, TxSysID, PktLen, TxChannel, TxPower);
+          (unsigned long)GPS_TimeSync.UTC, msTime, TxSysID, PktLen, TxChannel, TxPower);
       for(uint8_t Idx=0; Idx<PktLen; Idx++)
       { Len+=Format_Hex(Line+Len, TxPacket[Idx]); }
       Line[Len++]='\n'; Line[Len]=0;
@@ -910,6 +921,7 @@ static void Radio_ConfigLoRa(float BW, uint8_t SF, uint8_t PreambleLen, uint8_t 
   // Radio.setSyncWord((Sync&0xF0)|0x04, (Sync<<4)|0x04);
   // Radio.setSyncWord(Sync, 0x44);
   Radio_setSyncWord(Sync);
+  Radio_SetRxBoostedGainMode();
 #endif
 #ifdef WITH_SX1276
   Radio_setSyncWord(Sync);
@@ -1059,40 +1071,45 @@ static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeL
 // #include "lorawan.h"
 
 LoRaWANnode WANdev;
-static volatile bool WAN_RegisterRequest = false;
-static uint8_t WAN_RegisterKey[16];
+static QueueHandle_t WAN_RegisterQueue=0;
+static volatile bool WAN_Ready=false;
+static volatile bool WAN_HasAppKey=false;
+static volatile uint8_t WAN_RegisterStatus=0; // 0 idle, 1 pending, 2 saved, 3 save error
 
-void Radio_LoRaWANRegister(const uint8_t *Key)
-{ memcpy(WAN_RegisterKey, Key, 16);
-  WAN_RegisterRequest=true; }
+bool Radio_LoRaWANInit(void)
+{ if(WAN_RegisterQueue) return true;
+  WAN_RegisterQueue=xQueueCreate(1, 16);
+  return WAN_RegisterQueue!=0; }
 
-static void Radio_LoRaWANApplyRegister(void)
-{ if(!WAN_RegisterRequest) return;
-  uint8_t Key[16];
-  memcpy(Key, WAN_RegisterKey, 16);
-  WAN_RegisterRequest=false;
+bool Radio_LoRaWANReady(void) { return WAN_Ready; }
+bool Radio_LoRaWANHasAppKey(void) { return WAN_Ready && WAN_HasAppKey; }
+uint8_t Radio_LoRaWANRegisterStatus(void) { return WAN_RegisterStatus; }
 
-  WANdev.Enable=0;
-  WANdev.Reset(getUniqueID(), Key);
-  WANdev.Enable=1;
-  WANdev.ABP=0;
-  WANdev.Chan=0;
-  WANdev.TxOptLen=0;
-  WANdev.UpCount=0;
-  WANdev.DnCount=0;
-  WANdev.WriteToNVS();
+bool Radio_LoRaWANRegister(const uint8_t *AppKey)
+{ if(!AppKey || !WAN_Ready || !WAN_RegisterQueue) return false;
+  WAN_RegisterStatus=1;
+  if(xQueueOverwrite(WAN_RegisterQueue, AppKey)!=pdPASS)
+  { WAN_RegisterStatus=3; return false; }
+  return true; }
+
 #ifdef WITH_LORAWAN_DEBUG
-  if(xSemaphoreTake(CONS_Mutex, 100))
-  { Serial.printf("LoRaWAN: new OTAA credentials stored\n");
-    xSemaphoreGive(CONS_Mutex); }
+static void Radio_LoRaWANDebugTime(const char *Event, uint32_t Tick)
+{ uint32_t UTC=0;
+  uint32_t FracTime=0;
+  TimeSync_Time(UTC, FracTime, Tick);
+  int32_t RefAge=(int32_t)(Tick-GPS_TimeSync.sysTime);
+  printf("LoRaWAN UTC event=%s time=%lu.%03lu valid=%u ref=%lu/%lu age=%ld\n",
+         Event, (unsigned long)UTC, (unsigned long)FracTime,
+         GPS_TimeSync.UTC!=0, (unsigned long)GPS_TimeSync.UTC,
+         (unsigned long)GPS_TimeSync.sysTime, (long)RefAge); }
 #endif
-}
 
 static uint32_t Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
 { // Serial.printf("WAN Tx[%d]\n", PktLen);
   uint32_t msDead=millis();
 #ifdef WITH_LORAWAN_DEBUG
   uint32_t Start=millis();
+  Radio_LoRaWANDebugTime("TX_START", Start);
 #endif
   int State=Radio.transmit(Packet, PktLen);
   uint32_t Done=millis();
@@ -1101,41 +1118,86 @@ static uint32_t Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
   printf("LoRaWAN TX len=%u start=%lu end=%lu dur=%lu result=%d\n",
          PktLen, (unsigned long)Start, (unsigned long)Done,
          (unsigned long)(Done-Start), State);
+  Radio_LoRaWANDebugTime("TX_END", Done);
 #endif
   return Done;
 }
 
-static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLen, float *RSSI=0, float *SNR=0, float *FreqOfs=0)
+static const uint32_t LoRaWAN_DownlinkLateGraceMs=50; // [ms] tolerate downlink preamble starting this late after the scheduled window
+
+static uint32_t Radio_LoRaWANHeaderDetectMs(uint8_t SF, float BW)
+{ uint32_t BW_kHz=(uint32_t)(BW+0.5f);
+  if(!BW_kHz || SF>12) return 0;
+  uint32_t SymbolUs=(((1UL<<SF)*1000UL)+BW_kHz-1)/BW_kHz;
+  return (22UL*SymbolUs+999)/1000; } // preamble, sync, and explicit header, with a small symbol margin
+
+static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLen, uint32_t msHeaderDeadline, float *RSSI=0, float *SNR=0, float *FreqOfs=0)
 { uint32_t msStart=millis();
   // Serial.printf("RxLoRaWAN(%dms)\n", msTimeLen);
-  Radio.startReceive();
+  int32_t HeaderLeft=(int32_t)(msHeaderDeadline-msStart);
+  uint32_t msHeaderLen=HeaderLeft>0 ? (uint32_t)HeaderLeft : 0;
+  if(msHeaderLen>msTimeLen) msHeaderLen=msTimeLen;
+  int RxState=Radio.startReceive();
+  bool HeaderValid=false;
+  bool PacketReady=false;
 #ifdef WITH_LORAWAN_DEBUG
-  printf("LoRaWAN RX start=%lu max=%lu irq=%d\n",
-         (unsigned long)msStart, (unsigned long)msTimeLen, Radio_IRQ());
+  Radio_LoRaWANDebugTime("RX_START", msStart);
+  printf("LoRaWAN RX start=%lu max=%lu startResult=%d irqPin=%d flags=0x%08lx RSSI=%.1f\n",
+         (unsigned long)msStart, (unsigned long)msTimeLen, RxState, Radio_IRQ(),
+         (unsigned long)Radio.getIrqFlags(), Radio.getRSSI(false));
 #endif
   for( ; ; )
   { vTaskDelay(1);
     uint32_t Now = millis();
-    uint32_t msTime = Now-msStart;                  // [ms] time since start
-    if(msTime>=msTimeLen) break;                    // [ms] when reached the requesten time length then stop
-    if(Radio_IRQ()) break; }                        // break, when packet arrives
-  if(!Radio_IRQ())
+    uint32_t msTime = Now-msStart;             // [ms] time since start
+    if(Radio.checkIrq(RADIOLIB_IRQ_RX_DONE)>0)
+    { PacketReady=true; break; }
+    if(!HeaderValid && Radio.checkIrq(RADIOLIB_IRQ_HEADER_VALID)>0)
+    { HeaderValid=true;
+#ifdef WITH_LORAWAN_DEBUG
+      Radio_LoRaWANDebugTime("RX_HEADER", Now);
+      printf("LoRaWAN RX header valid t=%lu elapsed=%lu flags=0x%08lx\n",
+             (unsigned long)Now, (unsigned long)msTime,
+             (unsigned long)Radio.getIrqFlags());
+#endif
+      Radio.clearIrq(1UL<<RADIOLIB_IRQ_HEADER_VALID);
+    }
+    if(!HeaderValid && msTime>=msHeaderLen) break; // no valid LoRa header by the scheduled-window grace deadline
+    if(msTime>=msTimeLen) break; }                 // packet tail still has the original receive deadline
+  if(!PacketReady && Radio.checkIrq(RADIOLIB_IRQ_RX_DONE)>0) PacketReady=true; // catch RX_DONE at the timeout boundary
+  if(!PacketReady)
   {
+#ifdef WITH_LORAWAN_DEBUG
+    uint32_t IrqFlags=Radio.getIrqFlags();
+    float LiveRSSI=Radio.getRSSI(false);
+    uint32_t ExitTick=millis();
+    Radio_LoRaWANDebugTime("RX_EXIT", ExitTick);
+    printf("LoRaWAN RX exit header=%u done=%u hdrErr=%u crcErr=%u timeout=%u flags=0x%08lx irqPin=%d RSSI=%.1f elapsed=%lu\n",
+           HeaderValid, Radio.checkIrq(RADIOLIB_IRQ_RX_DONE)>0,
+           Radio.checkIrq(RADIOLIB_IRQ_HEADER_ERR)>0,
+           Radio.checkIrq(RADIOLIB_IRQ_CRC_ERR)>0,
+           Radio.checkIrq(RADIOLIB_IRQ_TIMEOUT)>0,
+           (unsigned long)IrqFlags, Radio_IRQ(), LiveRSSI,
+           (unsigned long)(ExitTick-msStart));
+#endif
+    Radio.standby();
     Radio_msLiveTime += millis()-msStart;
 #ifdef WITH_LORAWAN_DEBUG
-    printf("LoRaWAN RX timeout t=%lu\n", (unsigned long)millis());
+    printf("LoRaWAN RX timeout%s t=%lu\n", HeaderValid ? " after valid header" : " before valid header", (unsigned long)millis());
 #endif
     return 0;
   }
   int PktLen    = Radio.getPacketLength();          // [bytes]
   // Serial.printf("RxLoRaWAN: [%d]\n", PktLen);
   if(PktLen<=0 || PktLen>MaxPktLen)
-  { Radio_msLiveTime += millis()-msStart;
+  { Radio.standby();
+    Radio_msLiveTime += millis()-msStart;
     return 0; }
   if(RSSI)    *RSSI    = Radio.getRSSI();           // [dBm]
   if(SNR)     *SNR     = Radio.getSNR();            // [dB]
   if(FreqOfs) *FreqOfs = Radio.getFrequencyError(); // [Hz]
   Radio.readData(Packet, PktLen);
+  Radio.standby();
   Radio_msLiveTime += millis()-msStart;
 #ifdef WITH_LORAWAN_DEBUG
   printf("LoRaWAN RX packet len=%d t=%lu RSSI=%.1f SNR=%.1f\n",
@@ -1195,11 +1257,12 @@ const int Slot2_End   = 1200; // [ms]
 
 void Radio_Task(void *Parms)
 {
+
   Radio_FreqPlan.setPlan(Parameters.FreqPlan);
 
 #ifdef WITH_LORAWAN
   WANdev.Reset(getUniqueID());                        // set default LoRaWAN config.
-  if(WANdev.ReadFromNVS()<0)                          // try to read setup from flash and if fails:
+  if(WANdev.ReadFromNVS()<0)                          // try to read setup from NVS and if fails:
   {
 #ifdef WITH_LORAWAN_DEBUG
     if(xSemaphoreTake(CONS_Mutex, 100))
@@ -1271,6 +1334,13 @@ void Radio_Task(void *Parms)
 */
 #endif
 
+#ifdef WITH_LORAWAN
+  WAN_HasAppKey=false;
+  for(uint8_t Idx=0; Idx<16; Idx++)
+    if(WANdev.AppKey[Idx]) { WAN_HasAppKey=true; break; }
+  WAN_Ready=true;
+#endif
+
 #ifdef WITH_ESP32
   SPI.begin(Radio_PinSCK, Radio_PinMISO, Radio_PinMOSI);  // CLK, MISO, MOSI, CS given by the Radio contructor
 #else
@@ -1279,6 +1349,12 @@ void Radio_Task(void *Parms)
 #endif
 #ifdef Radio_SckFreq
   SPI.setFrequency(Radio_SckFreq);
+#endif
+
+#ifdef Radio_PinEnable
+  pinMode(Radio_PinEnable, OUTPUT);
+  digitalWrite(Radio_PinEnable, HIGH);
+  delay(10);
 #endif
 
 #ifdef WITH_SX1276
@@ -1309,6 +1385,7 @@ void Radio_Task(void *Parms)
   Radio.setRfSwitchPins(Radio_PinRXEN, RADIOLIB_NC);
 #endif
 #endif
+  Radio_SetRxBoostedGainMode();
   // Radio.setDio1Action(IRQcall);
 #endif
 
@@ -1338,7 +1415,19 @@ void Radio_Task(void *Parms)
       Radio.sleep();
       vTaskSuspend(NULL); }
 #ifdef WITH_LORAWAN
-    Radio_LoRaWANApplyRegister();
+    uint8_t NewAppKey[16];
+    if(WAN_RegisterQueue && xQueueReceive(WAN_RegisterQueue, NewAppKey, 0)==pdPASS)
+    { LoRaWANnode Previous=WANdev;
+      WANdev.Reset(getUniqueID(), NewAppKey);
+      WANdev.Enable=1;
+      WANdev.ABP=0;
+      bool Saved=WANdev.WriteToNVS()>0;
+      if(Saved)
+      { WAN_HasAppKey=true;
+        WAN_RegisterStatus=2; }
+      else
+      { WANdev=Previous;
+        WAN_RegisterStatus=3; } }
 #endif
     if(!HardwareStatus.Radio) { vTaskDelay(1000); continue; }
 
@@ -1351,16 +1440,15 @@ void Radio_Task(void *Parms)
     // if(msTime>=1000) msTime-=1000;                             // [ms] correct if there was no PPS update
     uint32_t msTime = TimeRef.getFracTime(millis());
     uint32_t msTimeLeft = 0;
-    if(Slot1_Start>msTime) msTimeLeft=Slot1_Start-msTime;         // [ms] time left for the M-Band slot
+    if(Slot1_Start>msTime) msTimeLeft=Slot1_Start-msTime;                      // [ms] time left for the uplink slot
     // Serial.printf("HDR slot: %u:%4d => %3dms before direct\n", TimeRef.UTC, msTime, msTimeLeft); ///
 
     // msTime = millis()-TimeRef.sysTime;
     // msTime = TimeRef.getFracTime(millis());
 
-    // Serial.printf("Mark: MSHT: %03lu (%03lu) ms\n", msTime, msTimeLeft); ///
 #ifdef WITH_MESHT
     uint32_t FreqMSH = Radio_FreqPlan.getFreqMESHT();           // frequency to transmit Meshtastic
-    if(msTimeLeft>=25 && FreqMSH && Parameters.TxMSHT && MSH_TxFIFO.Full())
+    if(msTimeLeft>=100 && FreqMSH && Parameters.TxMSHT && MSH_TxFIFO.Full())
     { Radio_ConfigMESHT();
       Radio_setFrequency(1e-6*FreqMSH);
       MESHT_Packet *MSHpacket = MSH_TxFIFO.getRead();
@@ -1380,10 +1468,9 @@ void Radio_Task(void *Parms)
     msTimeLeft = 0;
     if(Slot1_Start>msTime) msTimeLeft=Slot1_Start-msTime;         // [ms] time left for the M-Band slot
 
-    // Serial.printf("Mark: FNT/HDR: %03lu ms\n", TimeRef.getFracTime(millis())); ///
 #ifdef WITH_FANET_SLOT
     uint32_t FreqFNT = Radio_FreqPlan.getFreqFANET();            // frequency to transmit FANET
-    if(msTimeLeft>25 && FreqFNT)
+    if(msTimeLeft>=50 && FreqFNT)
     { float BW=250.0f; if(Radio_FreqPlan.Plan>1) BW=500.0f;      // for plans 2,3 and 4 bandwidth 500kHz
       Radio_ConfigFANET(BW);
       Radio_setFrequency(1e-6*FreqFNT);
@@ -1466,23 +1553,6 @@ void Radio_Task(void *Parms)
     if(FNTpacket) FNT_TxFIFO.Read();
 #endif
 
-/*
-#ifdef WITH_PAW
-    PAW_Packet *PawPacket = PAW_TxFIFO.getRead();
-    uint32_t FreqPAW = Radio_FreqPlan.getFreqOBAND();
-    if(PawPacket && FreqPAW)                         // if there is a packet to be transmitted and the frequency plan allows it
-    { Radio.standby();
-      int Ret=Radio_ConfigLDR();
-      Radio_setFrequency(1e-6*FreqPAW);
-      Radio_setOutputPower(Parameters.TxPower+13);       // we can transmit PAW with higher power
-      // Serial.printf("TxPAW: Freq:%7.3fMHz/%ddBm (%d) [%X:%X:%08X]\n",
-      //          1e-6*FreqPAW, Parameters.TxPower+13, Ret, (int)PAW_TxFIFO.ReadPtr, (int)PAW_TxFIFO.WritePtr, (int)PawPacket);
-      Radio_TxPAW(*PawPacket); }
-    if(PawPacket) PAW_TxFIFO.Read();
-#endif
-*/
-
-    // Serial.printf("Mark: OGN/ADS-L #1: %03lu ms\n", TimeRef.getFracTime(millis())); ///
     const OGN_TxPacket<OGN_Packet> *OgnPacket1 = OGN_TxFIFO.getRead();   // 1st OGN packet (possibly NULL)
     if(OgnPacket1) OGN_TxFIFO.Read();
     const OGN_TxPacket<OGN_Packet> *OgnPacket2 = OGN_TxFIFO.getRead();   // 2nd OGN packet (possibly NULL)
@@ -1552,11 +1622,9 @@ void Radio_Task(void *Parms)
     msTime = TimeRef.getFracTime(SysTime);           // [ms] time since PPS
     SlotLen = Slot2_End-msTime;
     bool WANnearRx = 0;
-    // Serial.printf("Mark: LoRaWAN #2: %03lu (%03lu) ms\n", msTime, SlotLen); ///
 #ifdef WITH_LORAWAN
     XorShift64(Random.Word);
-    static uint8_t WAN_RxPacket[LoRaWANnode::MaxPacketSize]; // keep the buffer in
-                                                             // step with LoRaWANnode::Packet
+    static uint8_t WAN_RxPacket[LoRaWANnode::MaxPacketSize]; // keep the buffer in step with LoRaWANnode::Packet
     static uint32_t WAN_RespTick=0;                   // [msec]
     static uint8_t WAN_RxWindow=0;                    // 0:none, 1:RX1, 2:RX2
     static uint32_t WAN_LastTxTime = 0;               // [ms]
@@ -1565,11 +1633,8 @@ void Radio_Task(void *Parms)
     uint32_t TxAgeLimit = 200000;                     // [ms] less frequent TTN position while on the ground
     if(Flight.inFlight()) TxAgeLimit = LookOut_AlarmLevel==0 ? 20000:50000; // [ms] more frequent TTN positions while in flight
     TxAgeLimit += Random.Word%19999;                  // [ms] randomize
-    // static uint8_t  WAN_BackOff=60;                   // [sec]
     bool WANtx = 0;
     bool WAN_SaveNeeded = 0;
-    // if(WAN_BackOff) WAN_BackOff--;
-    // else if(WANdev.Enable && Parameters.TxWAN && Radio_FreqPlan.Plan<=1) // decide to transmit in this slot
     if((WAN_Retry || TxAge>TxAgeLimit) && WANdev.Enable && Parameters.TxWAN && Radio_FreqPlan.Plan<=1) // decide to transmit in this slot
     { if(WANdev.State==0 || (WANdev.State==2 && (OgnPacket1 || OgnPacket2))) WANtx=1; }
     if(WANtx) SlotLen = 1100-msTime;                       // if decision to transmit then stop the time slot a bit earlier
@@ -1580,7 +1645,6 @@ void Radio_Task(void *Parms)
         if(SlotLen<100) WANnearRx=1; } }
 #endif
 
-    // Serial.printf("Mark: OGN/ADS-L #2: %03lu ms\n", TimeRef.getFracTime(millis())); ///
     OGN_Pkt  = OgnPacket2  ? OgnPacket2->Byte()      : 0;
     ADSL_Pkt = AdslPacket2 ? &(AdslPacket2->Version) : 0;
     TxPwr = Parameters.TxPower;
@@ -1611,7 +1675,6 @@ void Radio_Task(void *Parms)
     Radio_ChipTemperature = Radio.getTempRaw()+Parameters.RFchipTempCorr;
 #endif
 
-    // Serial.printf("Mark: LoRaWAN: %03lu ms\n", TimeRef.getFracTime(millis())); ///
 #ifdef WITH_LORAWAN
     if(WANtx)
     { XorShift64(Random.Word);                                        // random
@@ -1629,43 +1692,43 @@ void Radio_Task(void *Parms)
         if(WANdev.State==0)                                           // if not joined yet
         { uint8_t *TxPacket; TxPktLen=WANdev.getJoinRequest(&TxPacket); // produce Join-Request packet
 #ifdef WITH_LORAWAN_DEBUG
-          printf("LoRaWAN join: TX request len=%d t=%lu\n", TxPktLen, (unsigned long)millis());
+        printf("LoRaWAN join: TX request len=%d t=%lu\n", TxPktLen, (unsigned long)millis());
 #endif
-          WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen); WANdev.TxCount++;
+        WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen); WANdev.TxCount++;
+        WAN_LastTxTime = millis();
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN join: TX complete t=%lu\n", (unsigned long)WAN_TxDone);
+#endif
+        WANdev.WriteToNVS();                                         // persist DevNonce before the next possible reboot
+        RespDelay=5000;          // transmit join-request packet
+      } else if(WANdev.State==2)                                      // if joined the network
+      { const uint8_t *PktData=0;                                     // data to be be transmitted
+             if(OgnPacket1) PktData=OgnPacket1->Byte();
+        else if(OgnPacket2) PktData=OgnPacket2->Byte();
+        if(PktData)
+        { OGN1_Packet *OGN = (OGN1_Packet *)PktData; if(!OGN->Header.Encrypted) OGN->Dewhiten();
+          uint8_t *TxPacket;
+          bool Short = !OGN->Header.NonPos && !OGN->Header.Encrypted  // decide if send a short (without header) or long format
+                     && OGN->Header.AddrType==3 && OGN->Header.Address==(uint32_t)(getUniqueAddress()&0x00FFFFFF);
+          if(Short)
+          { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData+4, 16, 1, ((Random.RX>>16)&0xF)==0x8 ); }
+          else
+          { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData, 20, 1, ((Random.RX>>16)&0xF)==0x8 ); }
+          WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen);
           WAN_LastTxTime = millis();
-#ifdef WITH_LORAWAN_DEBUG
-          printf("LoRaWAN join: TX complete t=%lu\n", (unsigned long)WAN_TxDone);
-#endif
-          WANdev.WriteToNVS();                                      // persist DevNonce
-          RespDelay=5000;                                          // transmit join-request packet
-        } else if(WANdev.State==2)                                  // if joined the network
-        { const uint8_t *PktData=0;                                 // data to be transmitted
-               if(OgnPacket1) PktData=OgnPacket1->Byte();
-          else if(OgnPacket2) PktData=OgnPacket2->Byte();
-          if(PktData)
-          { OGN1_Packet *OGN = (OGN1_Packet *)PktData; if(!OGN->Header.Encrypted) OGN->Dewhiten();
-            uint8_t *TxPacket;
-            bool Short = !OGN->Header.NonPos && !OGN->Header.Encrypted  // decide if send a short (without header) or long format
-                       && OGN->Header.AddrType==3 && OGN->Header.Address==(uint32_t)(getUniqueAddress()&0x00FFFFFF);
-            if(Short)
-            { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData+4, 16, 1, ((Random.RX>>16)&0xF)==0x8 ); }
-            else
-            { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData, 20, 1, ((Random.RX>>16)&0xF)==0x8 ); }
-            WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen);
-            WAN_LastTxTime = millis();
-            WANdev.WriteToNVS();                                     // persist the uplink frame counter
-            RespDelay = WANdev.getRxDelaySeconds()*1000;
-          }
+          WANdev.WriteToNVS();                                       // persist the uplink frame counter
+          RespDelay = WANdev.getRxDelaySeconds()*1000;
         }
-        if(RespDelay)
-        { uint32_t Time=WAN_TxDone ? WAN_TxDone : millis();
-          WAN_RespTick=Time+RespDelay;
-          WAN_RxWindow=1;
+      }
+      if(RespDelay)
+      { uint32_t Time=WAN_TxDone ? WAN_TxDone : millis();
+        WAN_RespTick=Time+RespDelay;
+        WAN_RxWindow=1;
 #ifdef WITH_LORAWAN_DEBUG
-          printf("LoRaWAN RX1 scheduled txend=%lu due=%lu delay=%d\n",
-                 (unsigned long)Time, (unsigned long)WAN_RespTick, RespDelay);
+        printf("LoRaWAN RX1 scheduled txend=%lu due=%lu delay=%d\n",
+               (unsigned long)Time, (unsigned long)WAN_RespTick, RespDelay);
 #endif
-        }
+      }
       }
     }
 
@@ -1673,8 +1736,8 @@ void Radio_Task(void *Parms)
     bool WANmissed=0;
     uint32_t Time=millis();
     int32_t RespLeft = (int32_t)(WAN_RespTick-Time);
-    if((WANdev.State==1 || WANdev.State==3) && WAN_RxWindow)  // if State indicates we are waiting for a response window
-    { if(RespLeft<=80 && RespLeft>=-40) WANrx=1;                // start listening shortly before the scheduled window
+    if((WANdev.State==1 || WANdev.State==3) && WAN_RxWindow)
+    { if(RespLeft<=80 && RespLeft>=-40) WANrx=1;
       else if(RespLeft < -100) WANmissed=1; }
     if(WANrx)
     { uint8_t SF=7;
@@ -1686,12 +1749,12 @@ void Radio_Task(void *Parms)
         { uint8_t Offset=(WANdev.DLsetting>>4)&0x07;
           if(Offset>5) Offset=5;
           SF=12-(5-Offset); } }
-      else                                                     // TTN EU_863_870_TTN RX2: 869.525MHz, DR3/SF9
-      { SF=9; Freq=869.525f; }
+      else
+      { SF=9; Freq=869.525f; }                               // TTN EU_863_870_TTN RX2: DR3/SF9
       Radio_ConfigLoRaWAN(WANdev.Chan, 0, Parameters.TxPower, 1, SF, BW, Freq);
       Time=millis();
-      RespLeft=WAN_RespTick-Time;
-      int32_t msMaxTime=RespLeft+260;                          // allow a short SF9 downlink to complete after window start
+      RespLeft=(int32_t)(WAN_RespTick-Time);
+      int32_t msMaxTime=RespLeft+260;
       if(msMaxTime<220) msMaxTime=220;
 #ifdef WITH_LORAWAN_DEBUG
       printf("LoRaWAN RX%u open now=%lu due=%lu delta=%ld SF=%u BW=%.0f Freq=%.3f max=%ld\n",
@@ -1700,7 +1763,8 @@ void Radio_Task(void *Parms)
              (long)msMaxTime);
 #endif
       float RSSI=0; float SNR=0; float FreqOfs=0;
-      int RxLen=Radio_RxLoRaWAN(WAN_RxPacket, sizeof(WAN_RxPacket), msMaxTime, &RSSI, &SNR, &FreqOfs);
+      const uint32_t HeaderDeadline=WAN_RespTick+LoRaWAN_DownlinkLateGraceMs+Radio_LoRaWANHeaderDetectMs(SF, BW);
+      int RxLen=Radio_RxLoRaWAN(WAN_RxPacket, sizeof(WAN_RxPacket), msMaxTime, HeaderDeadline, &RSSI, &SNR, &FreqOfs);
 #ifdef WITH_LORAWAN_DEBUG
       printf("LoRaWAN RX%u result len=%d now=%lu\n",
              WAN_RxWindow, RxLen, (unsigned long)millis());
@@ -1745,13 +1809,9 @@ void Radio_Task(void *Parms)
       { WANdev.RxSilent++;
         if(WANdev.RxSilent>=60) WANdev.Disconnect(); } }
     if(WANmissed) WAN_SaveNeeded=1;
-    if(WAN_SaveNeeded)
-    {
-      WANdev.WriteToNVS();
-    }
+    if(WAN_SaveNeeded) WANdev.WriteToNVS();                  // store changed WAN RX state in flash
 #endif
 
-    // Serial.printf("Mark: Next: %03lu ms\n", TimeRef.getFracTime(millis())); ///
     Radio_PktRate += Radio_PktUpdate*(PktCount-Radio_PktRate);
     Radio_TxCredit+= 10;                                // [ms]
     if(Radio_TxCredit>60000) Radio_TxCredit=60000;
@@ -1762,11 +1822,11 @@ void Radio_Task(void *Parms)
     if(TimeRef.UTC%10!=5) continue; // only print every 10sec
     int LineLen=sprintf(Line,
      "Radio: Tx: %lu:%lu:%lu:%lu:%lu:%lu  Rx: %lu:%lu:%lu:%lu:%lu:%lu %lu:%lu  %lu:%lu:%lu:%lu:%lu:%lu  %3.1fdBm %lu+%lums %lu:%3.1f/s",
-       Radio_TxCount[0], Radio_TxCount[1], Radio_TxCount[2], Radio_TxCount[4], Radio_TxCount[5], Radio_TxCount[6],
-       Radio_RxCount[0], Radio_RxCount[1], Radio_RxCount[2], Radio_RxCount[4], Radio_RxCount[5], Radio_RxCount[6],
-       Radio_RxCount[8], Radio_RxCount[9],
-       RxProc_Count[0], RxProc_Count[1], RxProc_Count[2], RxProc_Count[4], RxProc_Count[5], RxProc_Count[6],
-       Radio_BkgRSSI, Radio_msLiveTime, Radio_msDeadTime, PktCountSum, Radio_PktRate /*, 0.001*Radio_TxCredit, */
+       (unsigned long)Radio_TxCount[0], (unsigned long)Radio_TxCount[1], (unsigned long)Radio_TxCount[2], (unsigned long)Radio_TxCount[4], (unsigned long)Radio_TxCount[5], (unsigned long)Radio_TxCount[6],
+       (unsigned long)Radio_RxCount[0], (unsigned long)Radio_RxCount[1], (unsigned long)Radio_RxCount[2], (unsigned long)Radio_RxCount[4], (unsigned long)Radio_RxCount[5], (unsigned long)Radio_RxCount[6],
+       (unsigned long)Radio_RxCount[8], (unsigned long)Radio_RxCount[9],
+       (unsigned long)RxProc_Count[0], (unsigned long)RxProc_Count[1], (unsigned long)RxProc_Count[2], (unsigned long)RxProc_Count[4], (unsigned long)RxProc_Count[5], (unsigned long)RxProc_Count[6],
+       Radio_BkgRSSI, (unsigned long)Radio_msLiveTime, (unsigned long)Radio_msDeadTime, (unsigned long)PktCountSum, Radio_PktRate /*, 0.001*Radio_TxCredit, */
        /* uxTaskGetStackHighWaterMark(NULL) */ );
              // FNT_TxFIFO.isCorrupt()?'!':'_', FNT_RxFIFO.isCorrupt()?'!':'_',
              // OGN_TxFIFO.isCorrupt()?'!':'_', ADSL_TxFIFO.isCorrupt()?'!':'_',

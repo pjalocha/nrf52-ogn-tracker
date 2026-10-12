@@ -198,9 +198,9 @@ static QRCode OLED_QRCode;
 #endif
 
 static const char *OLED_MenuAcftTypeNames[16] =
-{ "Unknown", "Glider", "Towplane", "Helicopter",
-  "Skydiver", "Drop", "Hangglider", "Paraglider",
-  "Motorplane", "Jet", "Gyroplane", "Balloon",
+{ "Unknown", "Glider", "Tow plane", "Helicopter",
+  "Skydiver", "Drop plane", "Hangglider", "Paraglider",
+  "Motor plane", "Jet", "Gyro plane", "Balloon",
   "Zeppelin", "UAV", "Car", "Fixed" };
 
 static const char *OLED_MenuAddrTypeNames[4] =
@@ -323,6 +323,9 @@ static bool OLED_MenuRandomAppKey(uint8_t *Key)
 
 static void OLED_MenuRegisterTTN(void)
 { uint8_t Key[16];
+  if(!Radio_LoRaWANReady())
+  { OLED_MenuShowMessage("RF not ready", -1);
+    OLED_Menu=OLED_MenuList; OLED_PageChange=true; return; }
   if(!OLED_MenuRandomAppKey(Key))
   { OLED_MenuShowMessage("RNG error", -1);
     OLED_Menu=OLED_MenuList; OLED_PageChange=true; return; }
@@ -332,14 +335,14 @@ static void OLED_MenuRegisterTTN(void)
 
   // Let the radio task replace the live LoRaWAN state and write it to flash.
   // LittleFS access stays in one task, avoiding a concurrent radio/OLED write.
-  Radio_LoRaWANRegister(Key);
+  if(!Radio_LoRaWANRegister(Key))
+  { OLED_MenuShowMessage("RF error", -1);
+    OLED_Menu=OLED_MenuList; OLED_PageChange=true; return; }
   OLED_Menu=OLED_MenuQR;
   OLED_PageChange=true; }
 
 static bool OLED_MenuTTNConfigured(void)
-{ for(uint8_t Idx=0; Idx<16; Idx++)
-    if(WANdev.AppKey[Idx]) return true;
-  return false; }
+{ return Radio_LoRaWANHasAppKey(); }
 #endif
 
 static void OLED_MenuEnterText(OLED_MenuTextField Field);
@@ -811,7 +814,9 @@ static void OLED_MenuDraw(u8g2_t *Display, const GPS_Position *GPS)
       Time[8]='Z'; Time[9]=0;
       u8g2_DrawStr(Display, 66, 48, Time); }
     else u8g2_DrawStr(Display, 66, 48, "GPS wait");
-    u8g2_DrawStr(Display, 66, 60, "SEND PHOTO");
+    uint8_t Status=Radio_LoRaWANRegisterStatus();
+    const char *StatusText=Status==2 ? "KEY SAVED" : Status==3 ? "SAVE FAILED" : "SEND PHOTO";
+    u8g2_DrawStr(Display, 66, 60, StatusText);
     u8g2_SetDrawColor(Display, 1);
     return;
   }

@@ -127,6 +127,10 @@ static int FlashLog(ADSL_RxPacket *RxPacket, uint32_t Time)
   memcpy(LogPacket->PktByte(), RxPacket->Packet.Byte, 20);
   LogPacket->Flags=0x80;                                                                       // set Rx flag
   LogPacket->Prot=1;          // this is an ADS-L, not OGN packet
+  int16_t SNR = (int16_t)220-(int16_t)RxPacket->RxRSSI;   // [0.5dB] referenced to -110dBm level
+  if(SNR<0) SNR=0;
+  else if(SNR>63) SNR=63;
+  LogPacket->SNR=SNR;
   LogPacket->setTime(Time);
   LogPacket->setCheck();
   FlashLog_FIFO.Write();                                                                       // finalize the write
@@ -138,6 +142,10 @@ static int FlashLog(OGN_RxPacket<OGN_Packet> *RxPacket, uint32_t Time)
   OGN_LogPacket<OGN_Packet> *LogPacket = FlashLog_FIFO.getWrite(); if(LogPacket==0) return -1; // allocate new packet in the LOG_FIFO
   LogPacket->Packet = RxPacket->Packet;                                                          // copy the packet
   LogPacket->Flags=0x80;                                                                       // set Rx flag
+  int16_t SNR = (int16_t)220-(int16_t)RxPacket->RxRSSI;   // [0.5dB] referenced to -110dBm level
+  if(SNR<0) SNR=0;
+  else if(SNR>63) SNR=63;
+  LogPacket->SNR=SNR;
   LogPacket->setTime(Time);
   LogPacket->setCheck();
   FlashLog_FIFO.Write();                                                                       // finalize the write
