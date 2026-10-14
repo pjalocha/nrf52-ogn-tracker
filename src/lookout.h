@@ -18,6 +18,17 @@
 
 // =======================================================================================================
 
+const uint8_t LookRxProt_FLR = 0;
+const uint8_t LookRxProt_OGN = 1;
+const uint8_t LookRxProt_MDR = 2;
+const uint8_t LookRxProt_LDR = 3;
+const uint8_t LookRxProt_HDR = 4;
+const uint8_t LookRxProt_FNT = 5;
+const uint8_t LookRxProt_PAW = 6;
+const uint8_t LookRxProt_ADSB = 7;
+
+// =======================================================================================================
+
 class LookOut_Target           // describes a flying aircrafts
 { public:
    union
@@ -76,8 +87,18 @@ class LookOut_Target           // describes a flying aircrafts
   uint16_t  MissDist;        // [0.5m]   estimated closest approach distance
   uint32_t OtherMeHistory;   // rolling fine-match decisions, one bit per fresh target position
 
+  uint16_t  RxProtPipe[8];   // 15-second history: bit 0 newest, bit 14 oldest
+  uint16_t  RxProtRSSI[8];   // [-1/16dBm]
+  uint32_t  RxProtPipeTime;  // newest UTC second represented in RxProtPipe
+  uint8_t   RxProtPipeValid;
+
   public:
-   void Clear(void) { Pred=0; Flags=0; HorDist=0; MissDist=0; Call[0]=0; WarnLevel=0; TimeMargin=0xFF; DistMargin=0xFFFF; OtherMeHistory=0; }
+   void Clear(void)
+   { Pred=0; Flags=0; HorDist=0; MissDist=0; Call[0]=0; WarnLevel=0; TimeMargin=0xFF; DistMargin=0xFFFF; OtherMeHistory=0;
+     for(uint8_t Prot=0; Prot<8; Prot++)
+     { RxProtPipe[Prot]=0; RxProtRSSI[Prot]=0; }
+     RxProtPipeTime=0; RxProtPipeValid=0;
+   }
 
    void setCall(const char *NewCall)
    { if(NewCall==0) return;
@@ -477,6 +498,7 @@ template <const uint8_t MaxTgts=32>
    template <class OGNx_Packet> // after starting the algorithm, process own position packets
     const LookOut_Target *ProcessOwn(OGNx_Packet &OwnPos, uint32_t RxTime) // process own position
    { // printf("ProcessOwn() ... entry\n");
+
      if(hasPosition)                                                                      // in my position is valid
      { Acft_RelPos NewPos;
        if(NewPos.Read(OwnPos, RxTime, RefTime, RefLat, RefLon, RefAlt, LatCos, DistRange)<0)       // read the new position
@@ -510,6 +532,7 @@ template <const uint8_t MaxTgts=32>
      for(uint8_t Idx=0; Idx<MaxTargets; Idx++)                                        // go over targets
      { LookOut_Target *Tgt = Target+Idx;
        if(!Tgt->Alloc) continue;                                                      // skip empty slots
+       AdvanceRxPipeTime(Tgt, RxTime);                                                // expire old protocol history bins
        if(Tgt->DistMargin==0)                                                         // those with no safety margin
        { while(Tgt->Pos.T<=(Pos.T-4))                                                 // bring closer in time to my (new) position
          { Tgt->Pos.StepFwd2secs(); Tgt->Pred+=4; }
@@ -527,7 +550,33 @@ template <const uint8_t MaxTgts=32>
      if( (!Tgt->Alloc) || (Tgt->DistMargin>0) ) return 0;                              // return NULL if target is not a thread
      return Tgt; }                                                                     // return the pointer to the most dangerous target
 
-   LookOut_Target *ProcessTarget(ADSL_Packet &Packet, uint32_t RxTime)           // process a position of another aircraft in ADS-L format
+   static void LowPass(uint16_t &Aver, uint16_t Inp)
+   { if(Aver==0) Aver  = Inp<<3;
+            else Aver += ((int16_t)(Inp<<3)-(int16_t)Aver+8)>>3; }
+
+   static bool AdvanceRxPipeTime(LookOut_Target *Tgt, uint32_t RxTime)
+   { if(!Tgt->RxProtPipeValid)
+     { Tgt->RxProtPipeTime=RxTime;
+       Tgt->RxProtPipeValid=1;
+       return 1; }
+     uint32_t Ahead=RxTime-Tgt->RxProtPipeTime;
+     if(Ahead && Ahead<0x80000000u)                                                   // newer time, including counter wrap
+     { if(Ahead>=15)
+       { for(uint8_t Prot=0; Prot<8; Prot++) Tgt->RxProtPipe[Prot]=0; }
+       else
+       { for(uint8_t Prot=0; Prot<8; Prot++) Tgt->RxProtPipe[Prot]<<=Ahead; }         // move observations toward older bins
+       Tgt->RxProtPipeTime=RxTime;
+       return 1; }
+     return (Tgt->RxProtPipeTime-RxTime)<15; }                                        // accept out-of-order times still in the window
+
+   static void UpdateRxStats(LookOut_Target *Tgt, uint8_t RxProt, uint8_t RSSI, uint32_t RxTime)
+   { if(RxProt>=8) return;
+     if(AdvanceRxPipeTime(Tgt, RxTime))
+     { uint32_t Age=Tgt->RxProtPipeTime-RxTime;
+       Tgt->RxProtPipe[RxProt] |= (uint16_t)1<<Age; }                                 // bit 0 is newest second; same-time protocols set separate pipes
+     LowPass(Tgt->RxProtRSSI[RxProt], RSSI); }                                       // update average RSSI
+
+   LookOut_Target *ProcessTarget(ADSL_Packet &Packet, uint32_t RxTime, uint8_t RxProt, uint8_t RSSI=0) // process a position of another aircraft in ADS-L format
    { // printf("ProcessTarget(%d) ... entry\n", SafestIdx);
      if(!hasPosition) return 0;
      LookOut_Target New;                                                               // parse into a scratch slot first
@@ -538,10 +587,10 @@ template <const uint8_t MaxTgts=32>
      New.Address  = Packet.getAddress();
      New.AddrType = Packet.getAddrType();
      New.AcftType = Packet.getAcftTypeOGN();
-     return ProcessTarget(&New); }
+     return ProcessTarget(&New, RxTime, RxProt, RSSI, Packet.isRelay()); }
 
    template <class OGNx_Packet>
-    LookOut_Target *ProcessTarget(OGNx_Packet &Packet, uint32_t RxTime)  // process a position of another aircraft in OGN format
+    LookOut_Target *ProcessTarget(OGNx_Packet &Packet, uint32_t RxTime, uint8_t RxProt, uint8_t RSSI=0)  // process a position of another aircraft in OGN format
    { // printf("ProcessTarget(%d) ... entry\n", SafestIdx);
      if(!hasPosition) return 0;
      LookOut_Target New;                                                               // parse into a scratch slot first
@@ -555,7 +604,7 @@ template <const uint8_t MaxTgts=32>
      // if(Call) { strncpy(New->Call, Call, 10); New->Call[10]=0; }
      //     else   New->Call[0]=0;
      New.Call[0]=0;
-     return ProcessTarget(&New); }
+     return ProcessTarget(&New, RxTime, RxProt, RSSI, Packet.Header.Relay); }
 
    void setTargetCall(uint32_t Address, uint8_t AddrType, const char *Call)
    { uint32_t ID = AddrType; ID = (ID<<24) | Address;
@@ -566,8 +615,9 @@ template <const uint8_t MaxTgts=32>
      if(Idx>=MaxTargets) return;
      Target[Idx].setCall(Call); }
 
-   LookOut_Target *ProcessTarget(LookOut_Target *New)
+   LookOut_Target *ProcessTarget(LookOut_Target *New, uint32_t RxTime, uint8_t RxProt, uint8_t RSSI, bool IsRelayed)
    {  // printf("ProcessTarget() ... %08X\n", ID);
+
      uint8_t OldIdx;
      LookOut_Target *Old = 0;                                                          // possible previous index to the same ID
      for(OldIdx=0; OldIdx<MaxTargets; OldIdx++)                                        // scan targets already on the list
@@ -578,7 +628,8 @@ template <const uint8_t MaxTgts=32>
        int16_t OldTime = Old->Pos.T-Old->Pred;                                         // [0.5s] last measured target-position time
        int16_t Lag = OldTime-New->Pos.T;                                               // [0.5s] positive when the new packet is older
        if(Lag>0)                                                                       // if position is not really newer
-       { if(Lag>(2*MaxPastPacketTime)) return 0;                                       // very delayed packet: ignore completely
+       { if(!IsRelayed) UpdateRxStats(Old, RxProt, RSSI, RxTime);                      // count only direct RF receptions
+         if(Lag>(2*MaxPastPacketTime)) return 0;                                       // very delayed position: ignore completely
          return Old; } }                                                               // small delay/duplicate: keep previous state
 
      if(Old && Old->Call[0] && New->Call[0]==0) { strncpy(New->Call, Old->Call, 10); New->Call[10]=0; } // copy the call
@@ -609,7 +660,12 @@ template <const uint8_t MaxTgts=32>
        int16_t Gap=New->Pos.T-OldTime;                                             // [0.5sec]
        if(Gap>=0 && Gap<=(2*OtherMeHistoryTimeout))
        { New->OtherMeHistory=Old->OtherMeHistory;
-         New->OtherMe=Old->OtherMe; } }
+         New->OtherMe=Old->OtherMe;
+         for(uint8_t Prot=0; Prot<8; Prot++)
+         { New->RxProtPipe[Prot]=Old->RxProtPipe[Prot];
+           New->RxProtRSSI[Prot]=Old->RxProtRSSI[Prot]; }
+         New->RxProtPipeTime=Old->RxProtPipeTime;
+         New->RxProtPipeValid=Old->RxProtPipeValid; } }
 
      if(Old) Old->Alloc=0;                                                             // mark old position as "not allocated"
      New->Alloc=1;                                                                     // mark this position as allocated
@@ -641,6 +697,8 @@ template <const uint8_t MaxTgts=32>
        if(SafeDist>=Max) { Max=SafeDist; MaxIdx=Idx; }                                 // if safer target found: note it
      }
      SafestIdx=MaxIdx;                                                                 // take the safest slot for the next time
+
+     if(!IsRelayed) UpdateRxStats(New, RxProt, RSSI, RxTime);                          // count only direct RF receptions
 
      return New; }
 

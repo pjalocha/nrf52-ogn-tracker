@@ -6,6 +6,7 @@
 
 #include "gps.h"
 #include "proc.h"
+#include "timesync.h"
 // #include "sens.h"
 #include "format.h"
 #include "intmath.h"
@@ -41,17 +42,18 @@ static const uint8_t OLED_Page_RelayOGN    = 7;
 static const uint8_t OLED_Page_RelayADSL   = 8;
 #ifdef WITH_LOOKOUT
 static const uint8_t OLED_Page_LookOut     = 9;
+static const uint8_t OLED_Page_Target      = 10;
 #endif
 #ifdef WITH_LOG
 #ifdef WITH_LOOKOUT
-static const uint8_t OLED_Page_Log         = 10;
-static const uint8_t OLED_Page_BaseCount   = 11;
+static const uint8_t OLED_Page_Log         = 11;
+static const uint8_t OLED_Page_BaseCount   = 12;
 #else
 static const uint8_t OLED_Page_Log         = 9;
 static const uint8_t OLED_Page_BaseCount   = 10;
 #endif
 #elif defined(WITH_LOOKOUT)
-static const uint8_t OLED_Page_BaseCount   = 10;
+static const uint8_t OLED_Page_BaseCount   = 11;
 #else
 static const uint8_t OLED_Page_BaseCount   = 9;
 #endif
@@ -84,6 +86,58 @@ static bool OLED_AlarmVisible=false;
 static bool OLED_AlarmClearPending=false;
 static uint32_t OLED_AlarmClearSince=0;
 static const uint32_t OLED_AlarmClearHold=2000; // [ms] suppress brief warning dropouts
+static bool OLED_TargetSelected=false;
+static uint32_t OLED_TargetID=0;
+static uint8_t OLED_TargetAcftType=0;
+static char OLED_TargetCall[11]={0};
+static uint32_t OLED_TargetPageUpdate=0;
+
+static void OLED_TargetRemember(const LookOut_Target *Target)
+{ if(Target==0) return;
+  OLED_TargetSelected=true;
+  OLED_TargetID=Target->ID;
+  OLED_TargetAcftType=Target->AcftType;
+  strncpy(OLED_TargetCall, Target->Call, sizeof(OLED_TargetCall)-1);
+  OLED_TargetCall[sizeof(OLED_TargetCall)-1]=0; }
+
+static bool OLED_TargetSelectStep(int8_t Direction)
+{ uint8_t Current=LookOut<32>::MaxTargets;
+  uint8_t Count=0;
+  for(uint8_t Idx=0; Idx<LookOut<32>::MaxTargets; Idx++)
+  { const LookOut_Target *Target=Look.Target+Idx;
+    if(!Target->Alloc) continue;
+    Count++;
+    if(OLED_TargetSelected && Target->ID==OLED_TargetID) Current=Idx; }
+  if(Count==0) return false;
+
+  if(Current<LookOut<32>::MaxTargets && Count==1) return false;
+
+  uint8_t Idx;
+  if(Current<LookOut<32>::MaxTargets)
+    Idx=Current;
+  else
+    Idx=(Direction<0) ? 0 : LookOut<32>::MaxTargets-1;
+  for(uint8_t Tried=0; Tried<LookOut<32>::MaxTargets; Tried++)
+  { if(Direction<0)
+    { if(Idx==0) Idx=LookOut<32>::MaxTargets-1; else Idx--; }
+    else
+    { Idx++; if(Idx>=LookOut<32>::MaxTargets) Idx=0; }
+    if(Look.Target[Idx].Alloc)
+    { if(OLED_TargetSelected && Look.Target[Idx].ID==OLED_TargetID) return false;
+      OLED_TargetRemember(Look.Target+Idx);
+      return true; } }
+  return false; }
+
+static const LookOut_Target *OLED_TargetFind(void)
+{ if(!OLED_TargetSelected)
+  { for(uint8_t Idx=0; Idx<LookOut<32>::MaxTargets; Idx++)
+      if(Look.Target[Idx].Alloc)
+      { OLED_TargetRemember(Look.Target+Idx); break; } }
+  if(!OLED_TargetSelected) return 0;
+  for(uint8_t Idx=0; Idx<LookOut<32>::MaxTargets; Idx++)
+    if(Look.Target[Idx].Alloc && Look.Target[Idx].ID==OLED_TargetID)
+    { OLED_TargetRemember(Look.Target+Idx); return Look.Target+Idx; }
+  return 0; }
 #endif
 uint8_t OLED_Rotate                        = 0;
 #ifdef WITH_OLED_DIM
@@ -693,7 +747,18 @@ static void OLED_MenuPollJoystick(void)
     Pressed=0;
   else Pressed&=OLED_MenuGestureOwner;
   if(OLED_Menu==OLED_MenuClosed)
-  { uint8_t PagePresses=Pressed&((1u<<2)|(1u<<3));
+  {
+#ifdef WITH_LOOKOUT
+    uint8_t TargetPresses=Pressed&((1u<<0)|(1u<<1));
+    if(OLED_Page==OLED_Page_Target && TargetPresses)
+    { bool WasOff=OLED_PageOFF;
+      OLED_PageOFF=false;
+      if(WasOff) OLED_SetPowerSave(false);
+      int8_t Direction=(TargetPresses&(1u<<0)) ? -1 : +1;
+      if(OLED_TargetSelectStep(Direction)) OLED_PageChange=true;
+      OLED_PageActive=millis(); }
+#endif
+    uint8_t PagePresses=Pressed&((1u<<2)|(1u<<3));
     if(PagePresses)
     { bool WasOff=OLED_PageOFF;
       OLED_PageOFF=false;
@@ -1010,6 +1075,7 @@ static bool OLED_PageAvailable(uint8_t Page)
     case OLED_Page_RelayADSL:
 #ifdef WITH_LOOKOUT
     case OLED_Page_LookOut:
+    case OLED_Page_Target:
 #endif
 #ifdef WITH_LOG
     case OLED_Page_Log:
@@ -1098,6 +1164,7 @@ static int OLED_DrawPage(const GPS_Position *GPS)
     case OLED_Page_RelayADSL: OLED_DrawRelayADSL (OLED.getU8g2(), GPS); break;
 #ifdef WITH_LOOKOUT
     case OLED_Page_LookOut:   OLED_DrawLookOut   (OLED.getU8g2(), GPS); break;
+    case OLED_Page_Target:    OLED_DrawTargetMonitor(OLED.getU8g2(), GPS); break;
 #endif
 #ifdef WITH_LOG
     case OLED_Page_Log:       OLED_DrawLogPage   (OLED.getU8g2(), GPS); break;
@@ -1280,6 +1347,13 @@ void OLED_Task(void *Parms)
       OLED_SetPowerSave(OLED_PageOFF);
       PrevGPS=GPS;
     }
+
+#ifdef WITH_LOOKOUT
+    uint32_t PageNow=millis();
+    if(OLED_Page==OLED_Page_Target && (int32_t)(PageNow-OLED_TargetPageUpdate)>=0)
+    { OLED_TargetPageUpdate=PageNow+1000;
+      OLED_PageChange=true; }
+#endif
 
     if(OLED_PageChange)
     { OLED_PageChange=false;
@@ -1812,6 +1886,77 @@ void OLED_DrawLookOut(u8g2_t *OLED, const GPS_Position *GPS)
   sprintf(Line, "No threat  Targets %d", Look.Targets);
   u8g2_DrawStr(OLED, 0, 47, Line);
   u8g2_DrawStr(OLED, 0, 59, "CPA --s ---m"); }
+
+static char OLED_TargetAddrTypeChar(uint8_t AddrType)
+{ switch(AddrType)
+  { case 5: return 'I';
+    case 6: return 'F';
+    case 7: return 'O';
+    case 8: return 'F';
+    default: return 'R'; } }
+
+static uint8_t OLED_CountRxPipe(uint16_t Pipe)
+{ uint8_t Count=0;
+  for(uint8_t Bit=0; Bit<15; Bit++) if(Pipe&(1u<<Bit)) Count++;
+  return Count; }
+
+void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
+{ (void)GPS;
+  static const char *ProtocolName[7] = { "FLR", "OGN", "MDR", "LDR", "HDR", "FNT", "PAW" };
+  static const uint8_t ProtocolID[7] = { LookRxProt_FLR, LookRxProt_OGN, LookRxProt_MDR,
+                                         LookRxProt_LDR, LookRxProt_HDR, LookRxProt_FNT,
+                                         LookRxProt_PAW };
+  char Line[32];
+  char ProtocolCell[7][12];
+  const LookOut_Target *Target=OLED_TargetFind();
+
+  if(!Target && !OLED_TargetSelected)
+  { u8g2_SetFont(OLED, u8g2_font_9x15_tr);
+    strcpy(Line, "No targets");
+    u8g2_DrawStr(OLED, (128-u8g2_GetStrWidth(OLED, Line))/2, 36, Line);
+    strcpy(Line, "to track");
+    u8g2_DrawStr(OLED, (128-u8g2_GetStrWidth(OLED, Line))/2, 54, Line);
+    return; }
+
+  uint32_t Now=millis();
+  bool ShowCall=OLED_TargetCall[0] && ((Now/2000)&1);
+  if(ShowCall)
+    snprintf(Line, sizeof(Line), "%.10s", OLED_TargetCall);
+  else
+    snprintf(Line, sizeof(Line), "%s:%c:%06lX",
+             Parameters.AcftTypeName(OLED_TargetAcftType),
+             OLED_TargetAddrTypeChar((uint8_t)(OLED_TargetID>>24)),
+             (unsigned long)(OLED_TargetID&0x00FFFFFF));
+  u8g2_SetFont(OLED, u8g2_font_9x15_tr);
+  u8g2_DrawStr(OLED, 0, 25, Line);
+
+  if(!Target)
+  { u8g2_SetFont(OLED, u8g2_font_6x12_tr);
+    u8g2_DrawStr(OLED, 0, 40, "TARGET LOST");
+    return; }
+
+  uint32_t CurrentTime=GPS_TimeSync.UTC+(millis()-GPS_TimeSync.sysTime)/1000;
+  uint32_t Age=CurrentTime-Target->RxProtPipeTime;
+  for(uint8_t Idx=0; Idx<7; Idx++)
+  { uint8_t Prot=ProtocolID[Idx];
+    uint16_t Pipe=Target->RxProtPipe[Prot]&0x7FFF;
+    if(Target->RxProtPipeValid && Age<0x80000000u)
+    { if(Age>=15) Pipe=0;
+      else Pipe>>=Age; }
+    if(OLED_CountRxPipe(Pipe)==0 || Target->RxProtRSSI[Prot]==0)
+      snprintf(ProtocolCell[Idx], sizeof(ProtocolCell[Idx]), "%-3s ---", ProtocolName[Idx]);
+    else
+    { int16_t RSSIdBm=(int16_t)((Target->RxProtRSSI[Prot]+8u)>>4); // stored as positive 1/16 dBm magnitude
+      int16_t Margin=110-RSSIdBm;                                    // [dB] above -110dBm
+      if(Margin<0) Margin=0;
+      snprintf(ProtocolCell[Idx], sizeof(ProtocolCell[Idx]), "%-3s %3d", ProtocolName[Idx], Margin); }
+  }
+  u8g2_SetFont(OLED, u8g2_font_6x10_tr);
+  for(uint8_t Idx=0; Idx<7; Idx++)
+  { uint8_t Row=Idx/2;
+    uint8_t X=(Idx&1) ? 64 : 0;
+    u8g2_DrawStr(OLED, X, 36+9*Row, ProtocolCell[Idx]); }
+  u8g2_DrawStr(OLED, 104, 63, "[dB]"); }
 #endif
 
 static int16_t OLED_ClipInt16(int32_t Value)
