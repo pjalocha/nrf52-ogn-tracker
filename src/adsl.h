@@ -524,8 +524,7 @@ class __attribute__((packed, aligned(4))) ADSL_Packet
      return 0; }
 
    void setAddrTypeOGN(uint8_t AddrType)
-   { if(AddrType==0) setAddrTable(0);
-     else setAddrTable(AddrType+4); }
+   { setAddrTable(AddrType+4); }
 
    void setAcftTypeOGN(uint8_t AcftType)                       // set OGN aircraft-type
    { const uint8_t Map[16] = { 0, 4, 1, 3,                     // unknown, glider, tow-plane, helicopter

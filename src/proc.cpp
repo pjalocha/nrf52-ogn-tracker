@@ -574,8 +574,8 @@ static const int32_t MaxRxDist = 25000;  // [m] assumed maximum reception distan
 static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx, uint32_t RxTime, uint8_t RxProt)
 { uint32_t Address  = RxPacket->Packet.Header.Address;                               // address
   uint8_t  AddrType = RxPacket->Packet.Header.AddrType;                              // address-type: FLR/OGN convention
-  uint8_t OwnPacket = ( Address  == Parameters.Address  )                            // my own aircraft ?
-                   && ( AddrType == Parameters.AddrType );
+  bool OwnPacket = Address==Parameters.Address;                                      // my own aircraft ?
+  // if(RxProt!=LookRxProt_PAW) OwnPacket = OwnPacket && AddrType==Parameters.AddrType;
   RxPacket->LatDist=0;
   RxPacket->LonDist=0;
   if(RxPacket->Packet.Header.NonPos)                                                 // status or info packet
@@ -587,7 +587,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
       if(RxPacket->RxErr<=8 && RxPacket->Packet.getInfo(Call, 5)>0)
       { // Serial.printf("ProcessRxOGN() %02X:%06X Call=%s %de\n", AddrType, Address, Call, RxPacket->RxErr);
 #ifdef WITH_LOOKOUT
-        Look.setTargetCall(Address, AddrType+4, Call);
+        Look.setTargetCall(Address, Call);
 #endif
       }
     }
@@ -736,10 +736,10 @@ static bool ADSL_isSignif(const ADSL_Packet *Packet, const ADSL_Packet *PrevPack
 static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t RxTime, bool doRelay, uint8_t RxProt)
 { uint32_t Address = RxPacket->Packet.getAddress();                                      // address
   uint8_t AddrType = RxPacket->Packet.getAddrTable();                                    // address-type: ADS-L convention
-  if(AddrType<4) AddrType=0;
-  else AddrType-=4;                                                                      // address-type: FLR/OGN convention
-  uint8_t MyOwnPacket = ( Address  == Parameters.Address )                               // is it my own aircraft ?
-                     && ( AddrType == Parameters.AddrType);
+  uint8_t AddrTypeOGN = AddrType-4;
+  if(AddrType<4) AddrTypeOGN=0;
+  bool OwnPacket = Address==Parameters.Address                                           // is it my own aircraft ?
+                && AddrTypeOGN==Parameters.AddrType;
   RxPacket->LatDist=0;
   RxPacket->LonDist=0;
   if(RxPacket->Packet.isTelemetry())
@@ -748,7 +748,7 @@ static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t
     if(RxPacket->RxErr<=4 && RxPacket->Packet.getInfo(Call, 5)>0)
     { // Serial.printf("ProcessRxADSL() %02X:%06X Call=%s %de\n", AddrType, Address, Call, RxPacket->RxErr);
 #ifdef WITH_LOOKOUT
-      Look.setTargetCall(Address, AddrType+4, Call);
+      Look.setTargetCall(Address, Call);
 #endif
     }
 #ifdef WITH_SDLOG
@@ -756,7 +756,7 @@ static void ProcessRxADSL(ADSL_RxPacket *RxPacket, uint8_t RxPacketIdx, uint32_t
 #endif
     return ; }
   if(!RxPacket->Packet.isPosition()) return;
-  if(MyOwnPacket) return;                                                             // don't process my own (relayed) packets
+  if(OwnPacket) return;                                                             // don't process my own (relayed) packets
   if(RxPacket->Packet.hasAlt())
     GhostAltitudeObserve(RxPacket->Packet.getAlt(), true, RxTime,
                          (GPS_Altitude+GPS_GeoidSepar)/10);

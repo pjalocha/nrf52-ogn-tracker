@@ -87,7 +87,8 @@ static bool OLED_AlarmClearPending=false;
 static uint32_t OLED_AlarmClearSince=0;
 static const uint32_t OLED_AlarmClearHold=2000; // [ms] suppress brief warning dropouts
 static bool OLED_TargetSelected=false;
-static uint32_t OLED_TargetID=0;
+static uint32_t OLED_TargetAddress=0;
+static uint8_t OLED_TargetAddrType=0;
 static uint8_t OLED_TargetAcftType=0;
 static char OLED_TargetCall[11]={0};
 static uint32_t OLED_TargetPageUpdate=0;
@@ -95,7 +96,8 @@ static uint32_t OLED_TargetPageUpdate=0;
 static void OLED_TargetRemember(const LookOut_Target *Target)
 { if(Target==0) return;
   OLED_TargetSelected=true;
-  OLED_TargetID=Target->ID;
+  OLED_TargetAddress=Target->Address;
+  OLED_TargetAddrType=Target->AddrType;
   OLED_TargetAcftType=Target->AcftType;
   strncpy(OLED_TargetCall, Target->Call, sizeof(OLED_TargetCall)-1);
   OLED_TargetCall[sizeof(OLED_TargetCall)-1]=0; }
@@ -107,7 +109,7 @@ static bool OLED_TargetSelectStep(int8_t Direction)
   { const LookOut_Target *Target=Look.Target+Idx;
     if(!Target->Alloc) continue;
     Count++;
-    if(OLED_TargetSelected && Target->ID==OLED_TargetID) Current=Idx; }
+    if(OLED_TargetSelected && Target->Address==OLED_TargetAddress) Current=Idx; }
   if(Count==0) return false;
 
   if(Current<LookOut<32>::MaxTargets && Count==1) return false;
@@ -123,7 +125,7 @@ static bool OLED_TargetSelectStep(int8_t Direction)
     else
     { Idx++; if(Idx>=LookOut<32>::MaxTargets) Idx=0; }
     if(Look.Target[Idx].Alloc)
-    { if(OLED_TargetSelected && Look.Target[Idx].ID==OLED_TargetID) return false;
+    { if(OLED_TargetSelected && Look.Target[Idx].Address==OLED_TargetAddress) return false;
       OLED_TargetRemember(Look.Target+Idx);
       return true; } }
   return false; }
@@ -135,7 +137,7 @@ static const LookOut_Target *OLED_TargetFind(void)
       { OLED_TargetRemember(Look.Target+Idx); break; } }
   if(!OLED_TargetSelected) return 0;
   for(uint8_t Idx=0; Idx<LookOut<32>::MaxTargets; Idx++)
-    if(Look.Target[Idx].Alloc && Look.Target[Idx].ID==OLED_TargetID)
+    if(Look.Target[Idx].Alloc && Look.Target[Idx].Address==OLED_TargetAddress)
     { OLED_TargetRemember(Look.Target+Idx); return Look.Target+Idx; }
   return 0; }
 #endif
@@ -1925,8 +1927,8 @@ void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
   else
     snprintf(Line, sizeof(Line), "%s:%c:%06lX",
              Parameters.AcftTypeName(OLED_TargetAcftType),
-             OLED_TargetAddrTypeChar((uint8_t)(OLED_TargetID>>24)),
-             (unsigned long)(OLED_TargetID&0x00FFFFFF));
+             OLED_TargetAddrTypeChar(OLED_TargetAddrType),
+             (unsigned long)OLED_TargetAddress);
   u8g2_SetFont(OLED, u8g2_font_9x15_tr);
   u8g2_DrawStr(OLED, 0, 25, Line);
 

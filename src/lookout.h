@@ -38,6 +38,8 @@ class LookOut_Target           // describes a flying aircrafts
        uint8_t  AddrType: 8;  // ADS-L address-type
      }  __attribute__((packed));
    } ;
+   uint8_t     AddrTypeRank;  // confidence and preference for the selected address-type
+   uint8_t     AcftTypeRank;  // source priority for the selected aircraft-type
    Acft_RelPos     Pos;        // Position relative to the reference Lat/Lon/Alt
     int8_t        Pred;        // [0.5sec] amount of time by which own position has been predicted/extrapolated
    uint8_t     GpsPrec;        // GPS position error (includes prediction errors)
@@ -94,7 +96,7 @@ class LookOut_Target           // describes a flying aircrafts
 
   public:
    void Clear(void)
-   { Pred=0; Flags=0; HorDist=0; MissDist=0; Call[0]=0; WarnLevel=0; TimeMargin=0xFF; DistMargin=0xFFFF; OtherMeHistory=0;
+   { AddrTypeRank=0; AcftTypeRank=0; Pred=0; Flags=0; HorDist=0; MissDist=0; Call[0]=0; WarnLevel=0; TimeMargin=0xFF; DistMargin=0xFFFF; OtherMeHistory=0;
      for(uint8_t Prot=0; Prot<8; Prot++)
      { RxProtPipe[Prot]=0; RxProtRSSI[Prot]=0; }
      RxProtPipeTime=0; RxProtPipeValid=0;
@@ -576,6 +578,17 @@ template <const uint8_t MaxTgts=32>
        Tgt->RxProtPipe[RxProt] |= (uint16_t)1<<Age; }                                 // bit 0 is newest second; same-time protocols set separate pipes
      LowPass(Tgt->RxProtRSSI[RxProt], RSSI); }                                       // update average RSSI
 
+   static uint8_t AddrTypePriority(uint8_t AddrType, uint8_t RxProt)
+   { if(AddrType<=4) return 0;                                                       // ADS-L tables 0..4 are random-ID forms
+     if(RxProt==LookRxProt_PAW || RxProt==LookRxProt_FNT) return 64+AddrType;          // address-type inferred from a packet without one
+     return 128+AddrType; }                                                          // explicit type; higher ADS-L table wins, extensions preserved
+
+   static uint8_t AcftTypePriority(uint8_t AcftType, uint8_t RxProt)
+   { if(AcftType==0) return 0;                                                       // unknown/other is always lowest priority
+     if(RxProt==LookRxProt_OGN || RxProt==LookRxProt_FLR ||
+        RxProt==LookRxProt_PAW || RxProt==LookRxProt_FNT) return 2;                  // native FLARM/OGN/PAW aircraft-type set
+     return 1; }                                                                      // ADS-L aircraft-category converted to FLARM/OGN type
+
    LookOut_Target *ProcessTarget(ADSL_Packet &Packet, uint32_t RxTime, uint8_t RxProt, uint8_t RSSI=0) // process a position of another aircraft in ADS-L format
    { // printf("ProcessTarget(%d) ... entry\n", SafestIdx);
      if(!hasPosition) return 0;
@@ -606,12 +619,12 @@ template <const uint8_t MaxTgts=32>
      New.Call[0]=0;
      return ProcessTarget(&New, RxTime, RxProt, RSSI, Packet.Header.Relay); }
 
-   void setTargetCall(uint32_t Address, uint8_t AddrType, const char *Call)
-   { uint32_t ID = AddrType; ID = (ID<<24) | Address;
+   void setTargetCall(uint32_t Address, const char *Call)
+   {
      uint8_t Idx=0;
      for( ; Idx<MaxTargets; Idx++)
      { if(Target[Idx].Alloc==0) continue;
-       if(Target[Idx].ID==ID) break; }
+       if(Target[Idx].Address==Address) break; }
      if(Idx>=MaxTargets) return;
      Target[Idx].setCall(Call); }
 
@@ -619,18 +632,33 @@ template <const uint8_t MaxTgts=32>
    {  // printf("ProcessTarget() ... %08X\n", ID);
 
      uint8_t OldIdx;
-     LookOut_Target *Old = 0;                                                          // possible previous index to the same ID
+     LookOut_Target *Old = 0;                                                          // possible previous target with the same address
      for(OldIdx=0; OldIdx<MaxTargets; OldIdx++)                                        // scan targets already on the list
      { if(Target[OldIdx].Alloc==0) continue;                                           // skip not allocated
-       if(Target[OldIdx].ID==New->ID) break; }                                         // to find previous position for the target
+       if(Target[OldIdx].Address==New->Address) break; }                               // address identifies the target across protocols
      if(OldIdx<MaxTargets)                                                             // if found
      { Old = Target+OldIdx;
+       uint8_t NewRank=AddrTypePriority(New->AddrType, RxProt);
+       if(NewRank>Old->AddrTypeRank)
+       { Old->AddrType=New->AddrType;
+         Old->AddrTypeRank=NewRank; }
+       New->AddrType=Old->AddrType;
+       New->AddrTypeRank=Old->AddrTypeRank;
+       uint8_t NewAcftTypeRank=AcftTypePriority(New->AcftType, RxProt);
+       if(NewAcftTypeRank>Old->AcftTypeRank)
+       { Old->AcftType=New->AcftType;
+         Old->AcftTypeRank=NewAcftTypeRank; }
+       New->AcftType=Old->AcftType;
+       New->AcftTypeRank=Old->AcftTypeRank;
        int16_t OldTime = Old->Pos.T-Old->Pred;                                         // [0.5s] last measured target-position time
        int16_t Lag = OldTime-New->Pos.T;                                               // [0.5s] positive when the new packet is older
        if(Lag>0)                                                                       // if position is not really newer
        { if(!IsRelayed) UpdateRxStats(Old, RxProt, RSSI, RxTime);                      // count only direct RF receptions
          if(Lag>(2*MaxPastPacketTime)) return 0;                                       // very delayed position: ignore completely
          return Old; } }                                                               // small delay/duplicate: keep previous state
+     else
+     { New->AddrTypeRank=AddrTypePriority(New->AddrType, RxProt);                     // remember the evidence for a new target's address-type
+       New->AcftTypeRank=AcftTypePriority(New->AcftType, RxProt); }                   // and aircraft-type
 
      if(Old && Old->Call[0] && New->Call[0]==0) { strncpy(New->Call, Old->Call, 10); New->Call[10]=0; } // copy the call
 
