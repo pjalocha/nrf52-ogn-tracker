@@ -88,6 +88,7 @@ static bool OLED_AlarmClearPending=false;
 static uint32_t OLED_AlarmClearSince=0;
 static const uint32_t OLED_AlarmClearHold=2000; // [ms] suppress brief warning dropouts
 static bool OLED_TargetSelected=false;
+static bool OLED_TargetGuidance=false;
 static uint32_t OLED_TargetAddress=0;
 static uint8_t OLED_TargetAddrType=0;
 static uint8_t OLED_TargetAcftType=0;
@@ -283,6 +284,11 @@ static void OLED_NextPage(void);
 static bool OLED_AlarmCondition(const LookOut_Target *Tgt, uint8_t Level);
 static bool OLED_UpdateAlarmPage(uint32_t Now);
 static void OLED_DrawAlarm(u8g2_t *Display);
+static void OLED_DrawNavigationCompass(u8g2_t *Display, int16_t Xc, int16_t Yc,
+                                       int16_t Radius, int16_t LabelRadius,
+                                       uint16_t Rotation, uint16_t PointerAngle,
+                                       int16_t TipRadius, int16_t BaseRadius,
+                                       int16_t HalfWidth);
 #endif
 
 static void OLED_MenuBeepOpen(void)
@@ -701,7 +707,15 @@ static void OLED_MenuHandleEvent(uint32_t Event)
     else if(OLED_Menu!=OLED_MenuList) OLED_MenuCommitItem();
   }
   if(Event&OLED_EventMenuClick)
-  { if(OLED_Menu==OLED_MenuList) OLED_MenuEnterItem();
+  { if(OLED_Menu==OLED_MenuClosed)
+    {
+#ifdef WITH_LOOKOUT
+      if(OLED_Page==OLED_Page_Target)
+      { OLED_TargetGuidance=!OLED_TargetGuidance;
+        OLED_MenuWake(); }
+#endif
+    }
+    else if(OLED_Menu==OLED_MenuList) OLED_MenuEnterItem();
     else if(OLED_Menu==OLED_MenuTxProtocols)
     { if(OLED_MenuTxProtocolItem<4)
         OLED_MenuTxProtocolMask^=OLED_TxProtocolBits[OLED_MenuTxProtocolItem];
@@ -1214,7 +1228,8 @@ static void OLED_HandleButton(void)
 static void OLED_HandleTakeoff(void)
 {
 #if defined(WITH_OLED_MENU) && defined(WITH_WIO_TRACKER)
-  if(OLED_MenuActive()) OLED_MenuClose();
+  if(OLED_MenuActive()) return; // OLED_MenuClose();
+  if(OLED_Page!=OLED_Page_ID) return;
 #endif
   OLED_Page=OLED_Page_Return;
   OLED_PageOFF=false;
@@ -1936,6 +1951,40 @@ void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
     u8g2_DrawStr(OLED, 0, 40, "TARGET LOST");
     return; }
 
+  if(OLED_TargetGuidance)
+  { uint16_t Heading=(uint16_t)Look.Pos.Heading;
+    uint16_t Bearing=(uint16_t)Look.getRelBearing(Target);
+    OLED_DrawNavigationCompass(OLED, 22, 44, 18, 14, Heading, Bearing, 16, 5, 4);
+
+    int32_t RelativeAltitude=Target->dZ;
+    RelativeAltitude=(RelativeAltitude>=0) ? (RelativeAltitude+1)/2 : (RelativeAltitude-1)/2;
+    // u8g2_SetFont(OLED, u8g2_font_6x10_tr);
+    u8g2_SetFont(OLED, u8g2_font_fub14_tr);
+    snprintf(Line, sizeof(Line), "%+ldm", (long)RelativeAltitude);
+    uint8_t Width=u8g2_GetStrWidth(OLED, Line);
+    u8g2_DrawStr(OLED, 126-Width, 44, Line);
+    // u8g2_DrawStr(OLED, 53, 44, Line);
+
+    uint32_t Distance=Look.getHorDist(Target);
+    if(Distance<5000) snprintf(Line, sizeof(Line), "%ldm", (long)Distance);
+                 else snprintf(Line, sizeof(Line), "%3.1fkm", 0.001*Distance);
+/*
+    char DistanceText[12];
+    snprintf(DistanceText, sizeof(DistanceText), "%lum", 12);
+    u8g2_SetFont(OLED, u8g2_font_fub14_tr);
+    if(u8g2_GetStrWidth(OLED, DistanceText)>73)
+    { if(Distance<100000u)
+      { uint32_t TenthKm=(Distance+50u)/100u;
+        snprintf(DistanceText, sizeof(DistanceText), "%lu.%lukm",
+                 (unsigned long)(TenthKm/10u), (unsigned long)(TenthKm%10u)); }
+      else
+        snprintf(DistanceText, sizeof(DistanceText), "%lukm",
+                 (unsigned long)((Distance+500u)/1000u)); }
+*/
+    Width=u8g2_GetStrWidth(OLED, Line);
+    u8g2_DrawStr(OLED, 126-Width, 61, Line);
+    return; }
+
   uint32_t CurrentTime=GPS_TimeSync.UTC+(millis()-GPS_TimeSync.sysTime)/1000;
   uint32_t Age=CurrentTime-Target->RxProtPipeTime;
   for(uint8_t Idx=0; Idx<7; Idx++)
@@ -1992,7 +2041,7 @@ static void OLED_DrawNavigationRose(u8g2_t *Display, int16_t Xc, int16_t Yc,
                                     int16_t Radius, int16_t LabelRadius,
                                     uint16_t Rotation)
 { u8g2_SetFont(Display, u8g2_font_7x13_tf);
-  u8g2_DrawCircle(Display, Xc, Yc, Radius, U8G2_DRAW_ALL);
+  u8g2_DrawCircle(Display, Xc-1, Yc, Radius, U8G2_DRAW_ALL);
   OLED_DrawDirectionCardinal(Display, 'N', Xc, Yc, LabelRadius, (uint16_t)(0x0000-Rotation));
   OLED_DrawDirectionCardinal(Display, 'E', Xc, Yc, LabelRadius, (uint16_t)(0x4000-Rotation));
   OLED_DrawDirectionCardinal(Display, 'S', Xc, Yc, LabelRadius, (uint16_t)(0x8000-Rotation));
