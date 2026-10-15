@@ -1916,6 +1916,13 @@ static char OLED_TargetAddrTypeChar(uint8_t AddrType)
 static uint8_t OLED_CountRxPipe(uint32_t Pipe)
 { return Count1s(Pipe&0x7FFFFFFF); }
 
+static uint32_t OLED_RecentRxPipe(const LookOut_Target *Target, uint8_t Protocol, uint32_t Age)
+{ uint32_t Pipe=Target->RxProtPipe[Protocol]&0x7FFFFFFF;
+  if(Target->RxProtPipeValid && Age<0x80000000u)
+  { if(Age>=31) Pipe=0;
+    else Pipe>>=Age; }
+  return Pipe; }
+
 void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
 { (void)GPS;
   static const char *ProtocolName[7] = { "FLR", "OGN", "MDR", "LDR", "HDR", "FNT", "PAW" };
@@ -1987,12 +1994,13 @@ void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
 
   uint32_t CurrentTime=GPS_TimeSync.UTC+(millis()-GPS_TimeSync.sysTime)/1000;
   uint32_t Age=CurrentTime-Target->RxProtPipeTime;
+  uint16_t PacketCount=0;
+  for(uint8_t Prot=0; Prot<8; Prot++)
+    PacketCount+=OLED_CountRxPipe(OLED_RecentRxPipe(Target, Prot, Age));
+
   for(uint8_t Idx=0; Idx<7; Idx++)
   { uint8_t Prot=ProtocolID[Idx];
-    uint32_t Pipe=Target->RxProtPipe[Prot]&0x7FFFFFFF;
-    if(Target->RxProtPipeValid && Age<0x80000000u)
-    { if(Age>=31) Pipe=0;
-      else Pipe>>=Age; }
+    uint32_t Pipe=OLED_RecentRxPipe(Target, Prot, Age);
     if(OLED_CountRxPipe(Pipe)==0 || Target->RxProtRSSI[Prot]==0)
       snprintf(ProtocolCell[Idx], sizeof(ProtocolCell[Idx]), "%-3s ---", ProtocolName[Idx]);
     else
@@ -2006,7 +2014,11 @@ void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
   { uint8_t Row=Idx/2;
     uint8_t X=(Idx&1) ? 64 : 0;
     u8g2_DrawStr(OLED, X, 36+9*Row, ProtocolCell[Idx]); }
-  u8g2_DrawStr(OLED, 104, 63, "[dB]"); }
+  uint16_t RateTenths=(PacketCount*10u+15u)/31u;
+  snprintf(Line, sizeof(Line), "%u.%u/sec", (unsigned)(RateTenths/10u),
+                                               (unsigned)(RateTenths%10u));
+  uint8_t Width=u8g2_GetStrWidth(OLED, Line);
+  u8g2_DrawStr(OLED, 126-Width, 63, Line); }
 #endif
 
 static int16_t OLED_ClipInt16(int32_t Value)
