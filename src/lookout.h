@@ -89,7 +89,7 @@ class LookOut_Target           // describes a flying aircrafts
   uint16_t  MissDist;        // [0.5m]   estimated closest approach distance
   uint32_t OtherMeHistory;   // rolling fine-match decisions, one bit per fresh target position
 
-  uint16_t  RxProtPipe[8];   // 15-second history: bit 0 newest, bit 14 oldest
+  uint32_t  RxProtPipe[8];   // 31-second history: bit 0 newest, bit 30 oldest
   uint16_t  RxProtRSSI[8];   // [-1/16dBm]
   uint32_t  RxProtPipeTime;  // newest UTC second represented in RxProtPipe
   uint8_t   RxProtPipeValid;
@@ -563,19 +563,19 @@ template <const uint8_t MaxTgts=32>
        return 1; }
      uint32_t Ahead=RxTime-Tgt->RxProtPipeTime;
      if(Ahead && Ahead<0x80000000u)                                                   // newer time, including counter wrap
-     { if(Ahead>=15)
+     { if(Ahead>=31)
        { for(uint8_t Prot=0; Prot<8; Prot++) Tgt->RxProtPipe[Prot]=0; }
        else
        { for(uint8_t Prot=0; Prot<8; Prot++) Tgt->RxProtPipe[Prot]<<=Ahead; }         // move observations toward older bins
        Tgt->RxProtPipeTime=RxTime;
        return 1; }
-     return (Tgt->RxProtPipeTime-RxTime)<15; }                                        // accept out-of-order times still in the window
+     return (Tgt->RxProtPipeTime-RxTime)<31; }                                        // accept out-of-order times still in the window
 
    static void UpdateRxStats(LookOut_Target *Tgt, uint8_t RxProt, uint8_t RSSI, uint32_t RxTime)
    { if(RxProt>=8) return;
      if(AdvanceRxPipeTime(Tgt, RxTime))
      { uint32_t Age=Tgt->RxProtPipeTime-RxTime;
-       Tgt->RxProtPipe[RxProt] |= (uint16_t)1<<Age; }                                 // bit 0 is newest second; same-time protocols set separate pipes
+       Tgt->RxProtPipe[RxProt] |= (uint32_t)1<<Age; }                                 // bit 0 is newest second; same-time protocols set separate pipes
      LowPass(Tgt->RxProtRSSI[RxProt], RSSI); }                                       // update average RSSI
 
    static uint8_t AddrTypePriority(uint8_t AddrType, uint8_t RxProt)
@@ -588,6 +588,16 @@ template <const uint8_t MaxTgts=32>
      if(RxProt==LookRxProt_OGN || RxProt==LookRxProt_FLR ||
         RxProt==LookRxProt_PAW || RxProt==LookRxProt_FNT) return 2;                  // native FLARM/OGN/PAW aircraft-type set
      return 1; }                                                                      // ADS-L aircraft-category converted to FLARM/OGN type
+
+   LookOut_Target *findTargetByAddress(uint32_t Address)
+   { for(uint8_t Idx=0; Idx<MaxTargets; Idx++)
+     { if(Target[Idx].Alloc && Target[Idx].Address==Address) return Target+Idx; }
+     return 0; }
+
+   const LookOut_Target *findTargetByAddress(uint32_t Address) const
+   { for(uint8_t Idx=0; Idx<MaxTargets; Idx++)
+     { if(Target[Idx].Alloc && Target[Idx].Address==Address) return Target+Idx; }
+     return 0; }
 
    LookOut_Target *ProcessTarget(ADSL_Packet &Packet, uint32_t RxTime, uint8_t RxProt, uint8_t RSSI=0) // process a position of another aircraft in ADS-L format
    { // printf("ProcessTarget(%d) ... entry\n", SafestIdx);
@@ -620,25 +630,15 @@ template <const uint8_t MaxTgts=32>
      return ProcessTarget(&New, RxTime, RxProt, RSSI, Packet.Header.Relay); }
 
    void setTargetCall(uint32_t Address, const char *Call)
-   {
-     uint8_t Idx=0;
-     for( ; Idx<MaxTargets; Idx++)
-     { if(Target[Idx].Alloc==0) continue;
-       if(Target[Idx].Address==Address) break; }
-     if(Idx>=MaxTargets) return;
-     Target[Idx].setCall(Call); }
+   { LookOut_Target *Tgt=findTargetByAddress(Address);
+     if(Tgt) Tgt->setCall(Call); }
 
    LookOut_Target *ProcessTarget(LookOut_Target *New, uint32_t RxTime, uint8_t RxProt, uint8_t RSSI, bool IsRelayed)
    {  // printf("ProcessTarget() ... %08X\n", ID);
 
-     uint8_t OldIdx;
-     LookOut_Target *Old = 0;                                                          // possible previous target with the same address
-     for(OldIdx=0; OldIdx<MaxTargets; OldIdx++)                                        // scan targets already on the list
-     { if(Target[OldIdx].Alloc==0) continue;                                           // skip not allocated
-       if(Target[OldIdx].Address==New->Address) break; }                               // address identifies the target across protocols
-     if(OldIdx<MaxTargets)                                                             // if found
-     { Old = Target+OldIdx;
-       uint8_t NewRank=AddrTypePriority(New->AddrType, RxProt);
+     LookOut_Target *Old=findTargetByAddress(New->Address);                            // address identifies target across protocols
+     if(Old)
+     { uint8_t NewRank=AddrTypePriority(New->AddrType, RxProt);
        if(NewRank>Old->AddrTypeRank)
        { Old->AddrType=New->AddrType;
          Old->AddrTypeRank=NewRank; }

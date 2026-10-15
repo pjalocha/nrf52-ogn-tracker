@@ -900,7 +900,16 @@ static void DecodeRxLDR(FSK_RxPacket *RxPkt)
   uint8_t RxPacketIdx  = OGN_RelayQueue.getNew();
   OGN_RxPacket<OGN_Packet> *RxPacket = OGN_RelayQueue[RxPacketIdx];
   PAW->Write(RxPacket->Packet);
-  /// here we should check if target with same address exists and adapt address-type to it
+#ifdef WITH_LOOKOUT
+  const LookOut_Target *Tgt=Look.findTargetByAddress(PAW->Address);
+  if(Tgt && (Tgt->AddrType<=4 || Tgt->AddrTypeRank>=128))                      // use random or explicitly observed address-type
+  { uint8_t TargetAddrType=Tgt->AddrType;
+    if(TargetAddrType<=4) RxPacket->Packet.Header.AddrType=0;                         // ADS-L random-ID tables => OGN random-ID
+    else if(TargetAddrType<=7) RxPacket->Packet.Header.AddrType=TargetAddrType-4;     // ADS-L ICAO/FLARM/OGN => OGN type
+    else TargetAddrType=0xFF;                                                         // OGN cannot represent extended ADS-L tables
+    if(TargetAddrType!=0xFF) RxPacket->Packet.calcAddrParity();                       // type changed: restore header parity
+  }
+#endif
   RxPacket->Packet.Position.Time = RxPkt->Time%60;
   RxPacket->RxErr  = 0;
   RxPacket->RxChan = RxPkt->Channel;

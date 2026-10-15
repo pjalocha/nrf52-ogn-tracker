@@ -6,8 +6,8 @@
 
 #include <stdint.h>
 
-// #define BITCOUNT_USE_BUILTIN
-#define BITCOUNT_SAVE_FLASH
+// #define BITCOUNT_USE_BUILTIN      // on some CPUs the built-in call just counts bits 'by hand'
+// #define BITCOUNT_SAVE_FLASH       // this reduces the flash size but here we have a lot of flash left
 
 // ==========================================================================
 // a table for fast bit counting

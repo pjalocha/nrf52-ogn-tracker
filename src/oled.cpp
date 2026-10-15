@@ -10,6 +10,7 @@
 // #include "sens.h"
 #include "format.h"
 #include "intmath.h"
+#include "bitcount.h"
 
 #include "ogn-radio.h"
 #ifdef WITH_TASK_STATS
@@ -1897,10 +1898,8 @@ static char OLED_TargetAddrTypeChar(uint8_t AddrType)
     case 8: return 'F';
     default: return 'R'; } }
 
-static uint8_t OLED_CountRxPipe(uint16_t Pipe)
-{ uint8_t Count=0;
-  for(uint8_t Bit=0; Bit<15; Bit++) if(Pipe&(1u<<Bit)) Count++;
-  return Count; }
+static uint8_t OLED_CountRxPipe(uint32_t Pipe)
+{ return Count1s(Pipe&0x7FFFFFFF); }
 
 void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
 { (void)GPS;
@@ -1941,9 +1940,9 @@ void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
   uint32_t Age=CurrentTime-Target->RxProtPipeTime;
   for(uint8_t Idx=0; Idx<7; Idx++)
   { uint8_t Prot=ProtocolID[Idx];
-    uint16_t Pipe=Target->RxProtPipe[Prot]&0x7FFF;
+    uint32_t Pipe=Target->RxProtPipe[Prot]&0x7FFFFFFF;
     if(Target->RxProtPipeValid && Age<0x80000000u)
-    { if(Age>=15) Pipe=0;
+    { if(Age>=31) Pipe=0;
       else Pipe>>=Age; }
     if(OLED_CountRxPipe(Pipe)==0 || Target->RxProtRSSI[Prot]==0)
       snprintf(ProtocolCell[Idx], sizeof(ProtocolCell[Idx]), "%-3s ---", ProtocolName[Idx]);
