@@ -434,8 +434,9 @@ class UBX_RxMsg // receiver for the UBX sentences
 
    bool isNAV_POSLLH (void) const { return isNAV() && (ID==0x02) && (Bytes==sizeof(UBX_NAV_POSLLH)); }
    bool isNAV_STATUS (void) const { return isNAV() && (ID==0x03); }
-   bool isNAV_DOP    (void) const { return isNAV() && (ID==0x04); }
+   bool isNAV_DOP    (void) const { return isNAV() && (ID==0x04) && (Bytes==18); }
    bool isNAV_SOL    (void) const { return isNAV() && (ID==0x06) && (Bytes==sizeof(UBX_NAV_SOL)); }
+   bool isNAV_PVT    (void) const { return isNAV() && (ID==0x07) && (Bytes==sizeof(UBX_NAV_PVT)); }
    bool isNAV_VELNED (void) const { return isNAV() && (ID==0x12); }
    bool isNAV_TIMEGPS(void) const { return isNAV() && (ID==0x20); }
    bool isNAV_TIMEUTC(void) const { return isNAV() && (ID==0x21) && (Bytes==sizeof(UBX_NAV_TIMEUTC)); }

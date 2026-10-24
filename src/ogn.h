@@ -184,25 +184,26 @@ template <class OGNx_Packet=OGN1_Packet>
    uint32_t FEC[2];       // Gallager code: 48 check bits for 160 user bits
 
    union
-   { uint8_t State;       // state bits and small values
+   { uint16_t State;       // state bits and small values
      struct
      { // bool Saved   :1;   // has been already saved in internal storage
        // bool Ready   :1;   // is ready for transmission
        // bool Sent    :1;   // has already been transmitted out
-       bool Alloc   :1;   // allocated in a queue or list
-       bool Correct :1;   // correctly received or corrected by FEC
-       uint8_t RxErr:4;   // number of bit errors corrected upon reception
-       uint8_t Warn :2;   // LookOut warning level
+       bool Alloc    :1;   // allocated in a queue or list
+       bool Correct  :1;   // correctly received or corrected by FEC
+       uint8_t Warn  :2;   // LookOut warning level
+       uint8_t RxErr :4;   // number of bit errors corrected upon reception
+       uint8_t RxProt:4;   // received protocol
      } __attribute__((packed)) ;
    } ;
 
    uint8_t RxChan;        // RF channel where the packet was received
    uint8_t RxRSSI;        // [-0.5dBm]
-   uint8_t Rank;          // rank: low altitude and weak signal => high rank
-
    int16_t LatDist;       // [m] distance along the latitude
    int16_t LonDist;       // [m] distance along the longitude
-   // int16_t AltDist;       // [m]
+   int16_t AltDist;       // [m]
+
+   uint8_t Rank;          // rank: low altitude and weak signal => high rank
 
   public:
 
@@ -241,7 +242,7 @@ template <class OGNx_Packet=OGN1_Packet>
 
    uint8_t PosTime(void) const { return Packet.Position.Time; }
 
-   void calcRelayRank(int32_t RxAltitude)                               // [m] altitude of reception
+   void calcRelayRank(void)
    { if(Packet.Header.Emergency) { Rank=0xFF; return; }                 // emergency packets always highest rank
      Rank=0;
      if(Packet.Header.NonPos)     return;                               // only relay position packets
@@ -250,13 +251,12 @@ template <class OGNx_Packet=OGN1_Packet>
      if(RxRSSI>128)                                                     // [-0.5dB] weaker signal => higher rank
        Rank += (RxRSSI-128)>>2;                                         // 1point/2dB less signal
      if(Packet.Header.Encrypted)  return;                               // for exncrypted packets we only take signal strength
-     RxAltitude -= Packet.DecodeAltitude();                             // [m] receiver altitude - target altitude
-     if(RxAltitude>0)                                                   // 
-       Rank += RxAltitude>>6;                                           // 1points/64m of altitude below
+     if(AltDist<0)                                                      //
+       Rank += (-AltDist)>>6;                                           // 1point/64m of altitude below
      int16_t ClimbRate = Packet.DecodeClimbRate();                      // [0.1m/s] higher sink rate => higher rank
      if(ClimbRate<0)
        Rank += (-ClimbRate)>>3;                                         // 1point/0.8m/s of sink
-   }
+     Rank+=1; }                                                         // always some minimal rank
 
    uint8_t ReadPOGNT(const char *NMEA)
    { uint8_t Len=0;
@@ -1122,37 +1122,87 @@ class GPS_Position: public GPS_Time
      if(RxMsg.isNAV_TIMEUTC()) return ReadUBX_NAV_TIMEUTC(RxMsg);
      if(RxMsg.isNAV_POSLLH() ) return ReadUBX_NAV_POSLLH(RxMsg);
      if(RxMsg.isNAV_SOL()    ) return ReadUBX_NAV_SOL(RxMsg);
+     if(RxMsg.isNAV_DOP()    ) return ReadUBX_NAV_DOP(RxMsg);
+     if(RxMsg.isNAV_PVT()    ) return ReadUBX_NAV_PVT(RxMsg);
      return 0; }
 
+   void ReadUBX_UTC(uint16_t UtcYear, uint8_t UtcMonth, uint8_t UtcDay,
+                    uint8_t UtcHour, uint8_t UtcMin, uint8_t UtcSec,
+                    int32_t Nano, bool DateValid, bool TimeValid)
+   { hasDate=DateValid;
+     if(DateValid)
+     { Year=(int8_t)(UtcYear-2000); Month=UtcMonth; Day=UtcDay; }
+     else { Year=Month=Day=-1; }
+     hasTime=TimeValid;
+     if(!TimeValid)
+     { Hour=Min=Sec=-1; mSec=0; return; }
+     Hour=UtcHour; Min=UtcMin; Sec=UtcSec;
+     if(Nano<0)
+     { if(DateValid) decrTimeDate(); else decrTime();
+       Nano+=1000000000; }
+     mSec=(Nano+500000)/1000000;
+     if(mSec>=1000)
+     { if(DateValid) incrTimeDate(); else incrTime();
+       mSec-=1000; } }
+
+   int8_t ReadUBX_NAV_PVT(UBX_RxMsg &RxMsg)
+   { const UBX_NAV_PVT *PVT=(const UBX_NAV_PVT *)RxMsg.Byte;
+     ReadUBX_UTC(PVT->year, PVT->month, PVT->day, PVT->hour, PVT->min, PVT->sec,
+                 PVT->nano, (PVT->valid&0x01)!=0, (PVT->valid&0x02)!=0);
+     FixMode = (PVT->fixType==2) ? 2 : ((PVT->fixType==3 || PVT->fixType==4) ? 3 : 1);
+     bool FixOK=(PVT->flags&0x01)!=0;
+     FixQuality=(FixOK && FixMode>=2) ? ((PVT->flags&0x02) ? 2 : 1) : 0;
+     Satellites=PVT->numSV;
+     Latitude=(int64_t)PVT->lat*3/50;
+     Longitude=(int64_t)PVT->lon*3/50;
+     Altitude=PVT->hMSL/100;
+     GeoidSeparation=((int64_t)PVT->height-PVT->hMSL)/100;
+     hasGeoidSepar=1;
+     Speed=PVT->gSpeed/100;
+     int32_t Heading10=PVT->headMot;
+     Heading10=(Heading10>=0 ? Heading10+5000 : Heading10-5000)/10000;
+     if(Heading10<0) Heading10+=3600;
+     else if(Heading10>=3600) Heading10-=3600;
+     Heading=Heading10;
+     PDOP=PVT->pDOP/10;
+     hasGPS=1;
+     calcLatitudeCosine();
+     return 1; }
+
    int8_t ReadUBX_NAV_TIMEUTC(UBX_RxMsg &RxMsg)
-   { UBX_NAV_TIMEUTC *TIMEUTC = (UBX_NAV_TIMEUTC *)(RxMsg.Byte);
-     Year  = TIMEUTC->year-2000;
-     Month = TIMEUTC->month;
-     Day   = TIMEUTC->day;
-     Hour  = TIMEUTC->hour;
-     Min   = TIMEUTC->min;
-     Sec   = TIMEUTC->sec;
-     if(TIMEUTC->nano<0) { decrTimeDate(); TIMEUTC->nano+=1000000000; }
-     mSec  =  (TIMEUTC->nano+500000)/1000000;             // [ms]
-     if(mSec>=1000) { incrTimeDate(); mSec-=1000; }
-     hasTime = (TIMEUTC->valid&0x02)!=0;
+   { const UBX_NAV_TIMEUTC *TIMEUTC=(const UBX_NAV_TIMEUTC *)RxMsg.Byte;
+     bool UTCValid=(TIMEUTC->valid&0x04)!=0;
+     ReadUBX_UTC(TIMEUTC->year, TIMEUTC->month, TIMEUTC->day,
+                 TIMEUTC->hour, TIMEUTC->min, TIMEUTC->sec,
+                 TIMEUTC->nano, UTCValid, UTCValid);
      return hasTime; }
 
    int8_t ReadUBX_NAV_POSLLH(UBX_RxMsg &RxMsg)
-   { UBX_NAV_POSLLH *POSLLH = (UBX_NAV_POSLLH *)(RxMsg.Byte);
-     Latitude        =  3*(int64_t)POSLLH->lat/50;
-     Longitude       =  3*(int64_t)POSLLH->lon/50;
-     Altitude        =  POSLLH->hMSL/100;
-     GeoidSeparation = (POSLLH->height-POSLLH->hMSL)/100;
-     hasGPS = 1;
+   { const UBX_NAV_POSLLH *POSLLH=(const UBX_NAV_POSLLH *)RxMsg.Byte;
+     Latitude        =  (int64_t)POSLLH->lat*3/50;                 // [1e-7deg] => [1/60000deg]
+     Longitude       =  (int64_t)POSLLH->lon*3/50;                 // [1e-7deg] => [1/60000deg]
+     Altitude        =  POSLLH->hMSL/100;                          // [mm] => [0.1m]
+     GeoidSeparation = ((int64_t)POSLLH->height-POSLLH->hMSL)/100; // [mm] => [0.1m]
+     hasGeoidSepar=1;
+     hasGPS=1;
+     calcLatitudeCosine();
+     return 1; }
+
+   int8_t ReadUBX_NAV_DOP(UBX_RxMsg &RxMsg)
+   { const UBX_NAV_DOP *DOP=(const UBX_NAV_DOP *)RxMsg.Byte;
+     PDOP=DOP->pDOP/10;
+     HDOP=DOP->hDOP/10;
+     VDOP=DOP->vDOP/10;
+     hasGSA=1;
      return 1; }
 
    int8_t ReadUBX_NAV_SOL(UBX_RxMsg &RxMsg)
-   { UBX_NAV_SOL *SOL = (UBX_NAV_SOL *)(RxMsg.Byte);
-     FixMode    = SOL->gpsFix;
-     FixQuality = FixMode>=2;
-     PDOP       = SOL->PDOP/10;
-     Satellites = SOL->numSV;
+   { const UBX_NAV_SOL *SOL=(const UBX_NAV_SOL *)RxMsg.Byte;
+     FixMode=(SOL->gpsFix==2) ? 2 : ((SOL->gpsFix==3 || SOL->gpsFix==4) ? 3 : 1);
+     bool FixOK=(SOL->flags&0x01)!=0;
+     FixQuality=(FixOK && FixMode>=2) ? ((SOL->flags&0x02) ? 2 : 1) : 0;
+     PDOP=SOL->PDOP/10;
+     Satellites=SOL->numSV;
      return 1; }
 
    int8_t ReadNMEA(NMEA_RxMsg &RxMsg)

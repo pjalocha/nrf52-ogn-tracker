@@ -210,11 +210,11 @@ class __attribute__((packed, aligned(4))) ADSL_Packet
 
    void Print(void) const
    { if(isPosition())
-       printf(" %d:v%d %4.1fs: %02X:%06lX [%+09.5f,%+010.5f]deg %dm %+4.1fm/s %05.1fdeg %3.1fm/s\n",
+       printf(" %d:v%d %4.1fs: %02X:%06X [%+09.5f,%+010.5f]deg %dm %+4.1fm/s %05.1fdeg %3.1fm/s\n",
          getEncrKey(), getVersion(), 0.25*TimeStamp, getAddrTable(), getAddress(), FNTtoFloat(getLat()), FNTtoFloat(getLon()),
          getAlt(), 0.125*getClimb(), (45.0/0x40)*getTrack(), 0.25*getSpeed());
      else
-       printf(" %d:v%d %4.1fs: %02X:%06lX\n",
+       printf(" %d:v%d %4.1fs: %02X:%06X\n",
          getEncrKey(), getVersion(), 0.25*TimeStamp, getAddrTable(), getAddress() );
    }
 
@@ -524,7 +524,8 @@ class __attribute__((packed, aligned(4))) ADSL_Packet
      return 0; }
 
    void setAddrTypeOGN(uint8_t AddrType)
-   { setAddrTable(AddrType+4); }
+   { if(AddrType==0) setAddrTable(0);
+     else setAddrTable(AddrType+4); }
 
    void setAcftTypeOGN(uint8_t AcftType)                       // set OGN aircraft-type
    { const uint8_t Map[16] = { 0, 4, 1, 3,                     // unknown, glider, tow-plane, helicopter
@@ -1180,24 +1181,26 @@ class __attribute__((packed, aligned(4))) ADSL_RxPacket
    ADSL_Packet Packet;
 
    union
-   { uint8_t State;       // state bits and small values
+   { uint16_t State;         // state bits and small values
      struct __attribute__((packed))
      { // bool Saved   :1;   // has been already saved in internal storage
        // bool Ready   :1;   // is ready for transmission
        // bool Sent    :1;   // has already been transmitted out
        bool Alloc   :1;   // allocated in a queue or list
        bool Correct :1;   // correctly received or corrected by FEC
-       uint8_t RxErr:4;   // number of bit errors corrected upon reception
        uint8_t Warn :2;   // LookOut warning level
+       uint8_t RxErr:4;   // number of bit errors corrected upon reception
+       uint8_t RxProt:4;   // received protocol
      } ;
    } ;
 
    uint8_t RxChan;        // RF channel where the packet was received
    uint8_t RxRSSI;        // [-0.5dBm]
-   uint8_t Rank;          // rank: low altitude and weak signal => high rank
-
    int16_t LatDist;       // [m] distance along the latitude
    int16_t LonDist;       // [m] distance along the longitude
+   int16_t AltDist;       // [m]
+
+   uint8_t Rank;          // rank: low altitude and weak signal => high rank
 
   public:
    ADSL_RxPacket() { Clear(); }
@@ -1223,7 +1226,7 @@ class __attribute__((packed, aligned(4))) ADSL_RxPacket
      if(abs(LonDist)>MaxDist) return -1;
      return 1; }
 
-   void calcRelayRank(int32_t RxAltitude)                               // [m] altitude of reception
+   void calcRelayRank(void)
    { // if(Packet.Header.Emergency) { Rank=0xFF; return; }                 // emergency packets always highest rank
      Rank=0;
      if(!Packet.isPos())      return;                               // only relay position packets
@@ -1232,13 +1235,12 @@ class __attribute__((packed, aligned(4))) ADSL_RxPacket
      if(RxRSSI>128)                                                     // [-0.5dB] weaker signal => higher rank
        Rank += (RxRSSI-128)>>2;                                         // 1point/2dB less signal
      // if(Packet.Header.Encrypted)  return;                               // for exncrypted packets we only take signal strength
-     RxAltitude -= Packet.getAlt();                                     // [m] receiver altitude - target altitude
-     if(RxAltitude>0)                                                   // 
-       Rank += RxAltitude>>6;                                           // 1points/64m of altitude below
+     if(AltDist<0)                                                      //
+       Rank += (-AltDist)>>6;                                           // 1point/64m of altitude below
      int16_t ClimbRate = Packet.getClimb();                             // [0.1m/s] higher sink rate => higher rank
      if(ClimbRate<0)
        Rank += (-ClimbRate)>>3;                                         // 1point/1m/s of sink
-   }
+     Rank+=1; }                                                         // always some minimal rank
 
 } ;
 

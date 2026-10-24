@@ -783,7 +783,14 @@ static void GPS_UBX(void)                                                       
 #ifdef DEBUG_PRINT
   DumpUBX();
 #endif
-  // GPS_Pos[GPS_PosIdx].ReadUBX(UBX);
+  GPS_Pos[GPS_PosIdx].ReadUBX(UBX);
+  if(UBX.isNAV_DOP())                 // if this was a NAV-DOP
+  { GPS_Burst.GxGSA=1; }
+  if(UBX.isNAV_PVT())                 // if this was a NAV-PVT
+  { GPS_DateTime = GPS_Pos[GPS_PosIdx];
+    GPS_Burst.GxGGA=1;                // this message contains a complete navigation solution
+    GPS_Burst.GxRMC=1;
+    GPS_Burst.GxGSA=1; }
 #ifdef WITH_GPS_UBX_PASS
   { if(CONS_UART_isConnected() && xSemaphoreTake(CONS_Mutex, 25))                 // send the UBX packet to the console
     { UBX.Send(CONS_UART_Write);
