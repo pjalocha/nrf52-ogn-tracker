@@ -571,7 +571,7 @@ uint32_t RxProc_Count[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 static const int32_t MaxRxDist = 25000;  // [m] assumed maximum reception distance, what is more is asusmed be badly decoded and dropped
 
 // process received OGN packets
-static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx, uint32_t RxTime)
+static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx, uint32_t RxTime, bool doRelay)
 { uint32_t Address  = RxPacket->Packet.Header.Address;                               // address
   uint8_t  AddrType = RxPacket->Packet.Header.AddrType;                              // address-type: FLR/OGN convention
   bool OwnPacket = Address==Parameters.Address;                                      // my own aircraft ?
@@ -601,6 +601,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
     GhostAltitudeObserve(RxPacket->Packet.DecodeAltitude(), true, RxTime, GPS_Altitude/10);
   if(RxPacket->Packet.Header.Encrypted && RxPacket->RxErr<10)                         // here we attempt to relay encrypted packets
   { RxPacket->calcRelayRank();
+    if(!doRelay) RxPacket->Rank=0;
     OGN_RxPacket<OGN_Packet> *PrevRxPacket = OGN_RelayQueue.addNew(RxPacketIdx);      // add to the relay queue and get the previous packet of same ID
 #ifdef WITH_SDLOG
     IGClog_OGN_FIFO.Write(*RxPacket);                                                     // log encrypted position packets
@@ -613,6 +614,7 @@ static void ProcessRxOGN(OGN_RxPacket<OGN_Packet> *RxPacket, uint8_t RxPacketIdx
     RxPacket->LonDist=LonDist;
     RxPacket->AltDist=(int32_t)RxPacket->Packet.DecodeAltitude()-GPS_Altitude/10;     // [m] target altitude relative to receiver
     RxPacket->calcRelayRank();                                                       // calculate the relay-rank (priority for relay)
+    if(!doRelay) RxPacket->Rank=0;
     OGN_RxPacket<OGN_Packet> *PrevRxPacket = OGN_RelayQueue.addNew(RxPacketIdx);          // add to the relay queue and get the previous packet of same ID
     // Serial.printf("ProcessRxOGN : %02X:%06X [%+5d,%+5d]m\n",
     //          RxPacket->Packet.Header.AddrType, RxPacket->Packet.Header.Address, LatDist, LonDist);
@@ -849,10 +851,10 @@ static void DecodeRxOGN(FSK_RxPacket *RxPkt)
      RxPkt->ErrCount(), RxPacket->RxErr, Check, RxPacketIdx);
 #endif
   if(Check!=0 || RxPacket->RxErr>=15) return;                     // what limit on number of detected bit errors ?
-  RxProc_Count[Radio_SysID_OGN]++;
+  RxProc_Count[Radio_SysID_OGN]++;                                // count processed packets
   RxPacket->Packet.Dewhiten();
   RxPacket->RxProt=LookRxProt_OGN;
-  ProcessRxOGN(RxPacket, RxPacketIdx, RxPkt->Time); }
+  ProcessRxOGN(RxPacket, RxPacketIdx, RxPkt->Time, 1); }
 
 static void DecodeRxADSL(FSK_RxPacket *RxPkt, uint8_t RxProt=LookRxProt_MDR)
 { uint8_t RxPacketIdx  = ADSL_RelayQueue.getNew();                   // get place for this new packet
@@ -898,14 +900,14 @@ static void DecodeRxLDR(FSK_RxPacket *RxPkt)
     DecodeRxADSL(RxPkt, LookRxProt_LDR);
     return; }
   RxProc_Count[Radio_SysID_LDR]++;
-  PAW_Packet::Whiten(RxPkt->Data, 24);
-  if(PAW_Packet::IntCRC(RxPkt->Data, 24)!=0x00) return;
+  PAW_Packet::Whiten(RxPkt->Data, 24);                   // de-whiten the PAW packet
+  if(PAW_Packet::IntCRC(RxPkt->Data, 24)!=0x00) return;  // internal XOR-CRC must be zero
   // Serial.printf("LDR: good PAW\n");
   PAW_Packet *PAW = (PAW_Packet *)RxPkt->Data;
   if(!PAW->isPos()) return;
   uint8_t RxPacketIdx  = OGN_RelayQueue.getNew();
   OGN_RxPacket<OGN_Packet> *RxPacket = OGN_RelayQueue[RxPacketIdx];
-  PAW->Write(RxPacket->Packet);
+  if(PAW->Write(RxPacket->Packet)<=0) return;
 #ifdef WITH_LOOKOUT
   const LookOut_Target *Tgt=Look.findTargetByAddress(PAW->Address);
   if(Tgt && (Tgt->AddrType<=4 || Tgt->AddrTypeRank>=128))                      // use random or explicitly observed address-type
@@ -922,7 +924,7 @@ static void DecodeRxLDR(FSK_RxPacket *RxPkt)
   RxPacket->RxRSSI = RxPkt->RSSI;
   RxPacket->Correct = 1;
   RxPacket->RxProt = LookRxProt_PAW;
-  ProcessRxOGN(RxPacket, RxPacketIdx, RxPkt->Time); }
+  ProcessRxOGN(RxPacket, RxPacketIdx, RxPkt->Time, !PAW->isUplink()); }
 
 static void DecodeRxHDR(FSK_RxPacket *RxPkt)
 { if(RxPkt->Bytes!=24 || RxPkt->Manchester) return;
@@ -1059,8 +1061,10 @@ static void DecodeRxPacket(FANET_RxPacket *RxPkt)
   if(FNT2OGN(RxPacket->Packet, *RxPkt, SlotTime%60)<=0) return;
   RxPacket->RxRSSI = -2*RxPkt->RSSI;
   RxPacket->RxProt = LookRxProt_FNT;
-  ProcessRxOGN(RxPacket, RxPacketIdx, SlotTime); }
+  ProcessRxOGN(RxPacket, RxPacketIdx, SlotTime, 0); }
 #endif
+
+// -------------------------------------------------------------------------------------------------------------------
 
 // -------------------------------------------------------------------------------------------------------------------
 
