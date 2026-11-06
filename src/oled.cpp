@@ -2001,13 +2001,15 @@ void OLED_DrawTargetMonitor(u8g2_t *OLED, const GPS_Position *GPS)
   for(uint8_t Idx=0; Idx<7; Idx++)
   { uint8_t Prot=ProtocolID[Idx];
     uint32_t Pipe=OLED_RecentRxPipe(Target, Prot, Age);
-    if(OLED_CountRxPipe(Pipe)==0 || Target->RxProtRSSI[Prot]==0)
+    uint8_t RxCount = OLED_CountRxPipe(Pipe);
+    if(RxCount==0 || Target->RxProtRSSI[Prot]==0)
       snprintf(ProtocolCell[Idx], sizeof(ProtocolCell[Idx]), "%-3s ---", ProtocolName[Idx]);
     else
     { int16_t RSSIdBm=(int16_t)((Target->RxProtRSSI[Prot]+8u)>>4); // stored as positive 1/16 dBm magnitude
       int16_t Margin=110-RSSIdBm;                                    // [dB] above -110dBm
       if(Margin<0) Margin=0;
-      snprintf(ProtocolCell[Idx], sizeof(ProtocolCell[Idx]), "%-3s %3d", ProtocolName[Idx], Margin); }
+      snprintf(ProtocolCell[Idx], sizeof(ProtocolCell[Idx]), "%-3s %3d/%2d",
+          ProtocolName[Idx], Margin, RxCount); }
   }
   u8g2_SetFont(OLED, u8g2_font_6x10_tr);
   for(uint8_t Idx=0; Idx<7; Idx++)
