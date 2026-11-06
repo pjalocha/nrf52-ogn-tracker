@@ -1075,6 +1075,11 @@ static QueueHandle_t WAN_RegisterQueue=0;
 static volatile bool WAN_Ready=false;
 static volatile bool WAN_HasAppKey=false;
 static volatile uint8_t WAN_RegisterStatus=0; // 0 idle, 1 pending, 2 saved, 3 save error
+static uint8_t WAN_RxPacket[LoRaWANnode::MaxPacketSize]; // keep the buffer in step with LoRaWANnode::Packet
+static uint32_t WAN_RespTick=0;                   // [msec]
+static uint8_t WAN_RxWindow=0;                    // 0:none, 1:RX1, 2:RX2
+static uint32_t WAN_LastTxTime=0;                 // [ms]
+static bool WAN_Retry=false;                      // retry after a busy LoRa channel
 
 bool Radio_LoRaWANInit(void)
 { if(WAN_RegisterQueue) return true;
@@ -1243,6 +1248,166 @@ static void Radio_ConfigLoRaWAN(uint8_t Chan, bool TX, float TxPower, uint8_t CR
   const float ChanStep =   0.2;
   Radio_setFrequency(Freq>0.0f ? Freq : BaseFreq+ChanStep*Chan); // set channel or fixed RX2 frequency
   if(TX) Radio_setOutputPower(TxPower); }
+
+static bool Radio_LoRaWANSchedule(uint32_t SysTime, uint32_t msTime, uint32_t &SlotLen, bool &WANnearRx, bool HasOgnPacket)
+{ XorShift64(Random.Word);
+  uint32_t TxAge=SysTime-WAN_LastTxTime;                    // [ms]
+  uint32_t TxAgeLimit=200000;                               // [ms] less frequent TTN position while on the ground
+  if(Flight.inFlight()) TxAgeLimit=LookOut_AlarmLevel==0 ? 20000:50000; // [ms] more frequent TTN positions while in flight
+  TxAgeLimit+=Random.Word%19999;                            // [ms] randomize
+  bool WANtx=0;
+  if((WAN_Retry || TxAge>TxAgeLimit) && WANdev.Enable && Parameters.TxWAN && Radio_FreqPlan.Plan<=1)
+  { if(WANdev.State==0 || (WANdev.State==2 && HasOgnPacket)) WANtx=1; }
+  if(WANtx) SlotLen=1100-msTime;                            // if decision to transmit then stop the time slot a bit earlier
+  else if((WANdev.State==1 || WANdev.State==3) && WAN_RxWindow) // if waiting for a reply
+  { int32_t RespLeft=(int32_t)(WAN_RespTick-(uint32_t)millis()); // and the reply time getting close
+    if(RespLeft>0 && RespLeft<1000)
+    { SlotLen=RespLeft-40;                                 // leave time to switch modes and start RX
+      if(SlotLen<100) WANnearRx=1; } }
+  return WANtx; }
+
+// static void Radio_LoRaWANService(bool WANtx, const OGN_TxPacket<OGN_Packet> *OgnPacket1,
+//                                  const OGN_TxPacket<OGN_Packet> *OgnPacket2)
+static void Radio_LoRaWANService(bool WANtx, const OGN_Packet *OGN)
+{ bool WAN_SaveNeeded=0;
+  if(WANtx)
+  { XorShift64(Random.Word);                                // random
+    WANdev.Chan=Random.RX&7;                                // choose random channel
+    uint8_t CRa=4; if(Flight.inFlight()) CRa=1;              // set stronger Coding Rate when on the ground
+    Radio_ConfigLoRaWAN(WANdev.Chan, 1, Parameters.TxPower, CRa); // setup for LoRaWAN on given channel
+    bool Busy=Radio.scanChannel()==RADIOLIB_PREAMBLE_DETECTED; // LoRa listen-before-talk
+    if(Busy)
+    { WAN_Retry=true; }
+    else
+    { WAN_Retry=false;
+      int RespDelay=0;
+      int TxPktLen=0;
+      uint32_t WAN_TxDone=0;
+      if(WANdev.State==0)                                     // if not joined yet
+      { uint8_t *TxPacket; TxPktLen=WANdev.getJoinRequest(&TxPacket); // produce Join-Request packet
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN join: TX request len=%d t=%lu\n", TxPktLen, (unsigned long)millis());
+#endif
+        WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen); WANdev.TxCount++;
+        WAN_LastTxTime=millis();
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN join: TX complete t=%lu\n", (unsigned long)WAN_TxDone);
+#endif
+        WANdev.WriteToNVS();                                 // persist DevNonce before the next possible reboot
+        RespDelay=5000;                                       // transmit join-request packet
+      }
+      else if(WANdev.State==2)                                // if joined the network
+      { // const uint8_t *PktData=0;                             // data to be transmitted
+        //      if(OgnPacket1) PktData=OgnPacket1->Byte();
+        // else if(OgnPacket2) PktData=OgnPacket2->Byte();
+        // if(PktData)
+        // { OGN1_Packet *OGN=(OGN1_Packet *)PktData; if(!OGN->Header.Encrypted) OGN->Dewhiten();
+        if(OGN)
+        { const uint8_t *PktData = OGN->Byte();
+          uint8_t *TxPacket;
+          bool Short=!OGN->Header.NonPos && !OGN->Header.Encrypted // decide if send a short (without header) or long format
+                   && OGN->Header.AddrType==3 && OGN->Header.Address==(uint32_t)(getUniqueAddress()&0x00FFFFFF);
+          if(Short)
+          { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData+4, 16, 1, ((Random.RX>>16)&0xF)==0x8 ); }
+          else
+          { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData, 20, 1, ((Random.RX>>16)&0xF)==0x8 ); }
+          WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen);
+          WAN_LastTxTime=millis();
+          WANdev.WriteToNVS();                               // persist the uplink frame counter
+          RespDelay=WANdev.getRxDelaySeconds()*1000;
+        }
+      }
+      if(RespDelay)
+      { uint32_t Time=WAN_TxDone ? WAN_TxDone : millis();
+        WAN_RespTick=Time+RespDelay;
+        WAN_RxWindow=1;
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN RX1 scheduled txend=%lu due=%lu delay=%d\n",
+               (unsigned long)Time, (unsigned long)WAN_RespTick, RespDelay);
+#endif
+      }
+    }
+  }
+
+  bool WANrx=0;
+  bool WANmissed=0;
+  uint32_t Time=millis();
+  int32_t RespLeft=(int32_t)(WAN_RespTick-Time);
+  if((WANdev.State==1 || WANdev.State==3) && WAN_RxWindow)
+  { if(RespLeft<=80 && RespLeft>=-40) WANrx=1;
+    else if(RespLeft < -100) WANmissed=1; }
+  if(WANrx)
+  { uint8_t SF=7;
+    float BW=125.0f;
+    float Freq=0.0f;
+    if(WAN_RxWindow==1)                                      // RX1 follows the uplink channel and DR offset
+    { if(WANdev.State==1) SF=7;                              // join-accept RX1 uses the join-request data rate
+      else
+      { uint8_t Offset=(WANdev.DLsetting>>4)&0x07;
+        if(Offset>5) Offset=5;
+        SF=12-(5-Offset); } }
+    else
+    { SF=9; Freq=869.525f; }                               // TTN EU_863_870_TTN RX2: DR3/SF9
+    Radio_ConfigLoRaWAN(WANdev.Chan, 0, Parameters.TxPower, 1, SF, BW, Freq);
+    Time=millis();
+    RespLeft=(int32_t)(WAN_RespTick-Time);
+    int32_t msMaxTime=RespLeft+260;
+    if(msMaxTime<220) msMaxTime=220;
+#ifdef WITH_LORAWAN_DEBUG
+    printf("LoRaWAN RX%u open now=%lu due=%lu delta=%ld SF=%u BW=%.0f Freq=%.3f max=%ld\n",
+           WAN_RxWindow, (unsigned long)Time, (unsigned long)WAN_RespTick,
+           (long)RespLeft, SF, BW, Freq>0.0f ? Freq : 867.1f+0.2f*WANdev.Chan,
+           (long)msMaxTime);
+#endif
+    float RSSI=0; float SNR=0; float FreqOfs=0;
+    const uint32_t HeaderDeadline=WAN_RespTick+LoRaWAN_DownlinkLateGraceMs+Radio_LoRaWANHeaderDetectMs(SF, BW);
+    int RxLen=Radio_RxLoRaWAN(WAN_RxPacket, sizeof(WAN_RxPacket), msMaxTime, HeaderDeadline, &RSSI, &SNR, &FreqOfs);
+#ifdef WITH_LORAWAN_DEBUG
+    printf("LoRaWAN RX%u result len=%d now=%lu\n",
+           WAN_RxWindow, RxLen, (unsigned long)millis());
+#endif
+    bool WANaccepted=0;
+    if(RxLen>0)
+    {
+      if(WANdev.State==1)
+      {
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN join: processing RX len=%d t=%lu\n", RxLen, (unsigned long)millis());
+#endif
+        int JoinResult=WANdev.procJoinAccept(WAN_RxPacket, RxLen);
+#ifdef WITH_LORAWAN_DEBUG
+        printf("LoRaWAN join: processing returned %d state=%u t=%lu\n", JoinResult, WANdev.State, (unsigned long)millis());
+#endif
+        WANaccepted=(JoinResult==0);
+      }
+      else if(WANdev.State==3) { WANdev.procRxData(WAN_RxPacket, RxLen); WANaccepted=(WANdev.State==2); }
+      if(WANaccepted)
+      { WANdev.RxCount++;
+        WANdev.RxRSSI=(int8_t)RSSI;
+        WANdev.RxSNR=(int8_t)(SNR*4);
+        WANdev.LastRx=TimeSync_Time(); } }
+    if(WANaccepted)
+    { WAN_RxWindow=0;
+      WANdev.RxSilent=0;
+      WAN_SaveNeeded=1; }
+    else if(WAN_RxWindow==1)                                 // no valid RX1: try RX2 one second later
+    { WAN_RxWindow=2;
+      WAN_RespTick+=1000; }
+    else WANmissed=1;                                         // no valid response in either window
+  }
+  if(WANmissed && WAN_RxWindow==1)                           // if RX1 could not be used, still honor RX2
+  { WANmissed=0;
+    WAN_RxWindow=2;
+    WAN_RespTick+=1000; }
+  if(WANmissed)
+  { WAN_RxWindow=0;
+    WANdev.State--;                                           // return to joined or unjoined state for next uplink
+    if(WANdev.State==2 && WANdev.TxConfirm)                   // only count a missed confirmed data probe, not join attempts or unconfirmed uplinks
+    { WANdev.RxSilent++;
+      if(WANdev.RxSilent>=60) WANdev.Disconnect(); } }
+  if(WANmissed) WAN_SaveNeeded=1;
+  if(WAN_SaveNeeded) WANdev.WriteToNVS();                     // store changed WAN RX state in flash
+}
 
 #endif
 
@@ -1557,9 +1722,9 @@ void Radio_Task(void *Parms)
     if(FNTpacket) FNT_TxFIFO.Read();
 #endif
 
-    const OGN_TxPacket<OGN_Packet> *OgnPacket1 = OGN_TxFIFO.getRead();   // 1st OGN packet (possibly NULL)
+    OGN_TxPacket<OGN_Packet> *OgnPacket1 = OGN_TxFIFO.getRead();   // 1st OGN packet (possibly NULL)
     if(OgnPacket1) OGN_TxFIFO.Read();
-    const OGN_TxPacket<OGN_Packet> *OgnPacket2 = OGN_TxFIFO.getRead();   // 2nd OGN packet (possibly NULL)
+    OGN_TxPacket<OGN_Packet> *OgnPacket2 = OGN_TxFIFO.getRead();   // 2nd OGN packet (possibly NULL)
     if(OgnPacket2) { OGN_TxFIFO.Read(); }
     //           else { OgnPacket2=OgnPacket1; }
     if(Random.RX&4) Swap(OgnPacket1, OgnPacket2);
@@ -1627,26 +1792,7 @@ void Radio_Task(void *Parms)
     SlotLen = Slot2_End-msTime;
     bool WANnearRx = 0;
 #ifdef WITH_LORAWAN
-    XorShift64(Random.Word);
-    static uint8_t WAN_RxPacket[LoRaWANnode::MaxPacketSize]; // keep the buffer in step with LoRaWANnode::Packet
-    static uint32_t WAN_RespTick=0;                   // [msec]
-    static uint8_t WAN_RxWindow=0;                    // 0:none, 1:RX1, 2:RX2
-    static uint32_t WAN_LastTxTime = 0;               // [ms]
-    static bool WAN_Retry = false;                    // retry after a busy LoRa channel
-    uint32_t TxAge = SysTime-WAN_LastTxTime;          // [ms]
-    uint32_t TxAgeLimit = 200000;                     // [ms] less frequent TTN position while on the ground
-    if(Flight.inFlight()) TxAgeLimit = LookOut_AlarmLevel==0 ? 20000:50000; // [ms] more frequent TTN positions while in flight
-    TxAgeLimit += Random.Word%19999;                  // [ms] randomize
-    bool WANtx = 0;
-    bool WAN_SaveNeeded = 0;
-    if((WAN_Retry || TxAge>TxAgeLimit) && WANdev.Enable && Parameters.TxWAN && Radio_FreqPlan.Plan<=1) // decide to transmit in this slot
-    { if(WANdev.State==0 || (WANdev.State==2 && (OgnPacket1 || OgnPacket2))) WANtx=1; }
-    if(WANtx) SlotLen = 1100-msTime;                       // if decision to transmit then stop the time slot a bit earlier
-    else if((WANdev.State==1 || WANdev.State==3) && WAN_RxWindow) // if waiting for a reply
-    { int32_t RespLeft = (int32_t)(WAN_RespTick-(uint32_t)millis()); // and the reply time getting close
-      if(RespLeft>0 && RespLeft<1000)
-      { SlotLen=RespLeft-40;                                // leave time to switch modes and start RX
-        if(SlotLen<100) WANnearRx=1; } }
+    bool WANtx=Radio_LoRaWANSchedule(SysTime, msTime, SlotLen, WANnearRx, OgnPacket1 || OgnPacket2);
 #endif
 
     OGN_Pkt  = OgnPacket2  ? OgnPacket2->Byte()      : 0;
@@ -1680,140 +1826,12 @@ void Radio_Task(void *Parms)
 #endif
 
 #ifdef WITH_LORAWAN
-    if(WANtx)
-    { XorShift64(Random.Word);                                        // random
-      WANdev.Chan = Random.RX&7;                                      // choose random channel
-      uint8_t CRa=4; if(Flight.inFlight()) CRa=1;                     // set stronger Coding Rate when on the ground
-      Radio_ConfigLoRaWAN(WANdev.Chan, 1, Parameters.TxPower, CRa);   // setup for LoRaWAN on given channel
-      bool Busy = Radio.scanChannel()==RADIOLIB_PREAMBLE_DETECTED;    // LoRa listen-before-talk
-      if(Busy)
-      { WAN_Retry=true; }
-      else
-      { WAN_Retry=false;
-        int RespDelay=0;
-        int TxPktLen=0;
-        uint32_t WAN_TxDone=0;
-        if(WANdev.State==0)                                           // if not joined yet
-        { uint8_t *TxPacket; TxPktLen=WANdev.getJoinRequest(&TxPacket); // produce Join-Request packet
-#ifdef WITH_LORAWAN_DEBUG
-        printf("LoRaWAN join: TX request len=%d t=%lu\n", TxPktLen, (unsigned long)millis());
-#endif
-        WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen); WANdev.TxCount++;
-        WAN_LastTxTime = millis();
-#ifdef WITH_LORAWAN_DEBUG
-        printf("LoRaWAN join: TX complete t=%lu\n", (unsigned long)WAN_TxDone);
-#endif
-        WANdev.WriteToNVS();                                         // persist DevNonce before the next possible reboot
-        RespDelay=5000;          // transmit join-request packet
-      } else if(WANdev.State==2)                                      // if joined the network
-      { const uint8_t *PktData=0;                                     // data to be be transmitted
-             if(OgnPacket1) PktData=OgnPacket1->Byte();
-        else if(OgnPacket2) PktData=OgnPacket2->Byte();
-        if(PktData)
-        { OGN1_Packet *OGN = (OGN1_Packet *)PktData; if(!OGN->Header.Encrypted) OGN->Dewhiten();
-          uint8_t *TxPacket;
-          bool Short = !OGN->Header.NonPos && !OGN->Header.Encrypted  // decide if send a short (without header) or long format
-                     && OGN->Header.AddrType==3 && OGN->Header.Address==(uint32_t)(getUniqueAddress()&0x00FFFFFF);
-          if(Short)
-          { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData+4, 16, 1, ((Random.RX>>16)&0xF)==0x8 ); }
-          else
-          { TxPktLen=WANdev.getDataPacket(&TxPacket, PktData, 20, 1, ((Random.RX>>16)&0xF)==0x8 ); }
-          WAN_TxDone=Radio_TxLoRaWAN(TxPacket, TxPktLen);
-          WAN_LastTxTime = millis();
-          WANdev.WriteToNVS();                                       // persist the uplink frame counter
-          RespDelay = WANdev.getRxDelaySeconds()*1000;
-        }
-      }
-      if(RespDelay)
-      { uint32_t Time=WAN_TxDone ? WAN_TxDone : millis();
-        WAN_RespTick=Time+RespDelay;
-        WAN_RxWindow=1;
-#ifdef WITH_LORAWAN_DEBUG
-        printf("LoRaWAN RX1 scheduled txend=%lu due=%lu delay=%d\n",
-               (unsigned long)Time, (unsigned long)WAN_RespTick, RespDelay);
-#endif
-      }
-      }
-    }
-
-    bool WANrx=0;
-    bool WANmissed=0;
-    uint32_t Time=millis();
-    int32_t RespLeft = (int32_t)(WAN_RespTick-Time);
-    if((WANdev.State==1 || WANdev.State==3) && WAN_RxWindow)
-    { if(RespLeft<=80 && RespLeft>=-40) WANrx=1;
-      else if(RespLeft < -100) WANmissed=1; }
-    if(WANrx)
-    { uint8_t SF=7;
-      float BW=125.0f;
-      float Freq=0.0f;
-      if(WAN_RxWindow==1)                                      // RX1 follows the uplink channel and DR offset
-      { if(WANdev.State==1) SF=7;                              // join-accept RX1 uses the join-request data rate
-        else
-        { uint8_t Offset=(WANdev.DLsetting>>4)&0x07;
-          if(Offset>5) Offset=5;
-          SF=12-(5-Offset); } }
-      else
-      { SF=9; Freq=869.525f; }                               // TTN EU_863_870_TTN RX2: DR3/SF9
-      Radio_ConfigLoRaWAN(WANdev.Chan, 0, Parameters.TxPower, 1, SF, BW, Freq);
-      Time=millis();
-      RespLeft=(int32_t)(WAN_RespTick-Time);
-      int32_t msMaxTime=RespLeft+260;
-      if(msMaxTime<220) msMaxTime=220;
-#ifdef WITH_LORAWAN_DEBUG
-      printf("LoRaWAN RX%u open now=%lu due=%lu delta=%ld SF=%u BW=%.0f Freq=%.3f max=%ld\n",
-             WAN_RxWindow, (unsigned long)Time, (unsigned long)WAN_RespTick,
-             (long)RespLeft, SF, BW, Freq>0.0f ? Freq : 867.1f+0.2f*WANdev.Chan,
-             (long)msMaxTime);
-#endif
-      float RSSI=0; float SNR=0; float FreqOfs=0;
-      const uint32_t HeaderDeadline=WAN_RespTick+LoRaWAN_DownlinkLateGraceMs+Radio_LoRaWANHeaderDetectMs(SF, BW);
-      int RxLen=Radio_RxLoRaWAN(WAN_RxPacket, sizeof(WAN_RxPacket), msMaxTime, HeaderDeadline, &RSSI, &SNR, &FreqOfs);
-#ifdef WITH_LORAWAN_DEBUG
-      printf("LoRaWAN RX%u result len=%d now=%lu\n",
-             WAN_RxWindow, RxLen, (unsigned long)millis());
-#endif
-      bool WANaccepted=0;
-      if(RxLen>0)
-      {
-        if(WANdev.State==1)
-        {
-#ifdef WITH_LORAWAN_DEBUG
-          printf("LoRaWAN join: processing RX len=%d t=%lu\n", RxLen, (unsigned long)millis());
-#endif
-          int JoinResult=WANdev.procJoinAccept(WAN_RxPacket, RxLen);
-#ifdef WITH_LORAWAN_DEBUG
-          printf("LoRaWAN join: processing returned %d state=%u t=%lu\n", JoinResult, WANdev.State, (unsigned long)millis());
-#endif
-          WANaccepted=(JoinResult==0);
-        }
-        else if(WANdev.State==3) { WANdev.procRxData(WAN_RxPacket, RxLen); WANaccepted=(WANdev.State==2); }
-        if(WANaccepted)
-        { WANdev.RxCount++;
-          WANdev.RxRSSI=(int8_t)RSSI;
-          WANdev.RxSNR=(int8_t)(SNR*4);
-          WANdev.LastRx=TimeSync_Time(); } }
-      if(WANaccepted)
-      { WAN_RxWindow=0;
-        WANdev.RxSilent=0;
-        WAN_SaveNeeded=1; }
-      else if(WAN_RxWindow==1)                                 // no valid RX1: try RX2 one second later
-      { WAN_RxWindow=2;
-        WAN_RespTick+=1000; }
-      else WANmissed=1;                                         // no valid response in either window
-    }
-    if(WANmissed && WAN_RxWindow==1)                            // if RX1 could not be used, still honor RX2
-    { WANmissed=0;
-      WAN_RxWindow=2;
-      WAN_RespTick+=1000; }
-    if(WANmissed)
-    { WAN_RxWindow=0;
-      WANdev.State--;                                          // return to joined or unjoined state for next uplink
-      if(WANdev.State==2 && WANdev.TxConfirm)                  // only count a missed confirmed data probe, not join attempts or unconfirmed uplinks
-      { WANdev.RxSilent++;
-        if(WANdev.RxSilent>=60) WANdev.Disconnect(); } }
-    if(WANmissed) WAN_SaveNeeded=1;
-    if(WAN_SaveNeeded) WANdev.WriteToNVS();                  // store changed WAN RX state in flash
+    // Radio_LoRaWANService(WANtx, OgnPacket1, OgnPacket2);
+    OGN1_Packet *OGN = 0;
+    if(OgnPacket1) OGN = &(OgnPacket1->Packet);
+    if(!OGN && OgnPacket2) OGN = &(OgnPacket2->Packet);
+    if(OGN && !OGN->Header.Encrypted) OGN->Dewhiten();
+    Radio_LoRaWANService(WANtx, OGN);
 #endif
 
     Radio_PktRate += Radio_PktUpdate*(PktCount-Radio_PktRate);
