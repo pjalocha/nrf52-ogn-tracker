@@ -84,9 +84,9 @@ float   Radio_BkgRSSI = -105.0f;                       // [dBm] background noise
 const float Radio_BkgUpdate = 0.05f;                   // weight to update the background noise
 
 #ifdef TX_PA_GAIN
-const float Radio_TxPwrGain = TX_PA_GAIN;
+const int16_t Radio_TxPwrGain = TX_PA_GAIN;
 #else
-const float Radio_TxPwrGain = 0;                       // [dBm] gain of a PA or loss of the filter/cable
+const int16_t Radio_TxPwrGain = 0;                       // [dBm] gain of a PA or loss of the filter/cable
 #endif
 
 // =======================================================================================================
@@ -107,7 +107,7 @@ static bool Radio_IRQ(void) { return digitalRead(Radio_PinIRQ1); }
 
 #ifdef WITH_SX1262
 #ifndef Radio_TCXO_Voltage
-#define Radio_TCXO_Voltage 1.6
+#define Radio_TCXO_Voltage Voltage1V6
 #endif
 
 static int Radio_SetRxBoostedGainMode(void)
@@ -127,11 +127,11 @@ static int Radio_SetRxBoostedGainMode(void)
 // #define WITH_SX1276_AFC
 
 #ifdef WITH_RADIO_CACHE
-static float Radio_Cache_Freq = -1.0f;
-static float Radio_Cache_TxPower = -1000.0f;
-static float Radio_Cache_BitRate = -1.0f;
-static float Radio_Cache_FreqDev = -1.0f;
-static float Radio_Cache_RxBandwidth = -1.0f;
+static uint32_t Radio_Cache_Freq = 0;
+static int8_t Radio_Cache_TxPower = INT8_MIN;
+static uint32_t Radio_Cache_BitRate = 0;
+static uint32_t Radio_Cache_FreqDev = 0;
+static uint32_t Radio_Cache_RxBandwidth = 0;
 static uint16_t Radio_Cache_PreambleLength = 0xFFFF;
 static uint8_t Radio_Cache_DataShaping = 0xFF;
 static uint8_t Radio_Cache_SyncLen = 0xFF;
@@ -151,11 +151,11 @@ static uint8_t Radio_Cache_PacketLen = 0xFF;
 static void Radio_Cache_Clear(void)
 {
 #ifdef WITH_RADIO_CACHE
-  Radio_Cache_Freq = -1.0f;
-  Radio_Cache_TxPower = -1000.0f;
-  Radio_Cache_BitRate = -1.0f;
-  Radio_Cache_FreqDev = -1.0f;
-  Radio_Cache_RxBandwidth = -1.0f;
+  Radio_Cache_Freq = 0;
+  Radio_Cache_TxPower = INT8_MIN;
+  Radio_Cache_BitRate = 0;
+  Radio_Cache_FreqDev = 0;
+  Radio_Cache_RxBandwidth = 0;
   Radio_Cache_PreambleLength = 0xFFFF;
   Radio_Cache_DataShaping = 0xFF;
   Radio_Cache_SyncLen = 0xFF;
@@ -167,7 +167,7 @@ static void Radio_Cache_Clear(void)
 }
 
 #if defined(WITH_SX1276) && defined(WITH_SX1276_AFC)
-static int Radio_setupAFC(float Bandwidth)
+static int Radio_setupAFC(uint32_t Bandwidth)
 { int ErrState=0; int State=0;
   State=Radio.setAFC(false);
   if(State) ErrState=State;
@@ -187,8 +187,8 @@ static int Radio_setupAFC(float Bandwidth)
   return ErrState; }
 #endif
 
-static int Radio_setFrequency(float Freq)                // set receive/transmit frequency
-{ Freq += (0.0000001f*Parameters.RFchipFreqCorr)*Freq;   // apply frequency correction
+static int Radio_setFrequency(uint32_t Freq)              // [Hz] set receive/transmit frequency
+{ Freq += (int64_t)Parameters.RFchipFreqCorr*Freq/10000000; // apply frequency correction
 #ifdef WITH_RADIO_CACHE
   if(Freq==Radio_Cache_Freq) return 0;
 #endif
@@ -201,8 +201,8 @@ static int Radio_setFrequency(float Freq)                // set receive/transmit
 #endif
   return 0; }
 
-static int Radio_setOutputPower(float TxPower)         // set trannsmitter power
-{ TxPower-=Radio_TxPwrGain;
+static int Radio_setOutputPower(int16_t TxPower)         // [dBm] set transmitter power
+{ TxPower = TxPower-Radio_TxPwrGain;
   if(TxPower<0) TxPower=0;
 #ifdef WITH_SX1276
   else if(TxPower>20) TxPower=20;
@@ -214,7 +214,7 @@ static int Radio_setOutputPower(float TxPower)         // set trannsmitter power
   if(TxPower==Radio_Cache_TxPower) return 0;
 #endif
   uint32_t msDead = millis();
-  int State=Radio.setOutputPower(TxPower);
+  int State=Radio.setOutputPower((int8_t)TxPower);
   msDead = millis()-msDead; Radio_msDeadTime+=msDead;
   if(State) return State;
   msDead = millis();
@@ -238,7 +238,7 @@ static int Radio_setDataShaping(uint8_t Shaping)
 #endif
   return 0; }
 
-static int Radio_setBitRate(float BitRate)
+static int Radio_setBitRate(uint32_t BitRate)
 {
 #ifdef WITH_RADIO_CACHE
   if(BitRate==Radio_Cache_BitRate) return 0;
@@ -250,7 +250,7 @@ static int Radio_setBitRate(float BitRate)
 #endif
   return 0; }
 
-static int Radio_setFrequencyDeviation(float FreqDev)
+static int Radio_setFrequencyDeviation(uint32_t FreqDev)
 {
 #ifdef WITH_RADIO_CACHE
   if(FreqDev==Radio_Cache_FreqDev) return 0;
@@ -262,7 +262,7 @@ static int Radio_setFrequencyDeviation(float FreqDev)
 #endif
   return 0; }
 
-static int Radio_setRxBandwidth(float RxBandwidth)
+static int Radio_setRxBandwidth(uint32_t RxBandwidth)
 {
 #ifdef WITH_RADIO_CACHE
   if(RxBandwidth==Radio_Cache_RxBandwidth) return 0;
@@ -417,29 +417,29 @@ static int Radio_ConfigManchFSK(uint8_t PktLen, bool RxMode, const uint8_t *SYNC
 #endif
 #ifdef WITH_SX1262
   if(Radio.getPacketType()!=RADIOLIB_SX126X_PACKET_TYPE_GFSK)
-  { State=Radio.config(RADIOLIB_SX126X_PACKET_TYPE_GFSK);
+  { State=Radio.setModem(RADIOLIB_MODEM_FSK);
     if(State==0) Radio_Cache_Clear(); }
 #endif
   if(State) ErrState=State;
   State=Radio_setDataShaping(RADIOLIB_SHAPING_0_5);                 // [BT]   FSK modulation shaping
   if(State) ErrState=State;
-  State=Radio_setBitRate(100.0);                                    // [kpbs] 100kbps bit rate but we transmit Manchester encoded thus effectively 50 kbps
+  State=Radio_setBitRate(100000);                                   // [bps] 100kbps, Manchester encoded on air at 50kbps
   if(State) ErrState=State;
-  State=Radio_setFrequencyDeviation(50.0);                          // [kHz]  +/-50kHz deviation
+  State=Radio_setFrequencyDeviation(50000);                          // [Hz] +/-50kHz deviation
   if(State) ErrState=State;
 #ifdef WITH_SX1262
-  State=Radio_setRxBandwidth(234.3); // 156.2, 187.2, *234.3, 312.0  // [kHz]  bandwidth - single side
+  State=Radio_setRxBandwidth(234300); // [Hz] single-side bandwidth
   if(State) ErrState=State;
 #endif
 #if defined(WITH_SX1276) && defined(WITH_SX1276_AFC)
   if(RxMode)
-  { State=Radio_setRxBandwidth(200.0);                                // [kHz]  bandwidth - single side
+  { State=Radio_setRxBandwidth(200000);                               // [Hz] bandwidth
     if(State) ErrState=State;
-    State=Radio_setupAFC(250.0);
+    State=Radio_setupAFC(250000);
     if(State) ErrState=State; }
 #elif defined(WITH_SX1276)
   if(RxMode)
-  { State=Radio_setRxBandwidth(200.0);                                // [kHz]  bandwidth - single side
+  { State=Radio_setRxBandwidth(200000);                               // [Hz] bandwidth
     if(State) ErrState=State; }
 #endif
 #ifdef WITH_SX1262
@@ -545,21 +545,21 @@ static int Radio_ConfigLDR(uint8_t PktLen=PAW_Packet::Size+7, bool RxMode=0, con
 #endif
 #ifdef WITH_SX1262
   if(Radio.getPacketType()!=RADIOLIB_SX126X_PACKET_TYPE_GFSK)
-  { State=Radio.config(RADIOLIB_SX126X_PACKET_TYPE_GFSK);
+  { State=Radio.setModem(RADIOLIB_MODEM_FSK);
     if(State==0) Radio_Cache_Clear(); }
 #endif
   if(State) ErrState=State;
   State=Radio_setDataShaping(RADIOLIB_SHAPING_1_0);                 // [BT]   FSK modulation shaping
   if(State) ErrState=State;
-  State=Radio_setBitRate(38.4);                                     // [kpbs] 38.4kbps bit rate
+  State=Radio_setBitRate(38400);                                    // [bps] 38.4kbps bit rate
   if(State) ErrState=State;
-  State=Radio_setFrequencyDeviation(12.5);                          // [kHz]  +/-12.5kHz deviation
+  State=Radio_setFrequencyDeviation(12500);                         // [Hz] +/-12.5kHz deviation
   if(State) ErrState=State;
-  State=Radio_setRxBandwidth(58.6); ///  46.9, 58.6, 78.2, 93.8     // [kHz]  50kHz bandwidth
+  State=Radio_setRxBandwidth(58600);                                 // [Hz] 58.6kHz bandwidth
   if(State) ErrState=State;
 #if defined(WITH_SX1276) && defined(WITH_SX1276_AFC)
   if(RxMode)
-  { State=Radio_setupAFC(58.6);
+  { State=Radio_setupAFC(58600);
     if(State) ErrState=State; }
 #endif
   State=Radio_setPreambleLength(RxMode?16:40);                      // [bits] very long preamble for Pilot-Aware
@@ -624,29 +624,29 @@ static int Radio_ConfigHDR(uint8_t PktLen, bool RxMode, const uint8_t *SYNC, uin
 #endif
 #ifdef WITH_SX1262
   if(Radio.getPacketType()!=RADIOLIB_SX126X_PACKET_TYPE_GFSK)
-  { State=Radio.config(RADIOLIB_SX126X_PACKET_TYPE_GFSK);
+  { State=Radio.setModem(RADIOLIB_MODEM_FSK);
     if(State==0) Radio_Cache_Clear(); }
 #endif
   if(State) ErrState=State;
   State=Radio_setDataShaping(RADIOLIB_SHAPING_0_5);                 // [BT]   FSK modulation shaping
   if(State) ErrState=State;
-  State=Radio_setBitRate(200.0);                                    // [kpbs] 100kbps bit rate but we transmit Manchester encoded thu$
+  State=Radio_setBitRate(200000);                                   // [bps] 100kbps Manchester encoded to 200kbps
   if(State) ErrState=State;
-  State=Radio_setFrequencyDeviation(50.0);                          // [kHz]  +/-50kHz deviation
+  State=Radio_setFrequencyDeviation(50000);                          // [Hz] +/-50kHz deviation
   if(State) ErrState=State;
 #ifdef WITH_SX1262
-  State=Radio_setRxBandwidth(312.0); // 156.2, 187.2, *234.3, 312.0  // [kHz]  bandwidth - single side
+  State=Radio_setRxBandwidth(312000);                                // [Hz] bandwidth
   if(State) ErrState=State;
 #endif
 #if defined(WITH_SX1276) && defined(WITH_SX1276_AFC)
   if(RxMode)
-  { State=Radio_setRxBandwidth(250.0);                                // [kHz]  bandwidth - single side
+  { State=Radio_setRxBandwidth(250000);                              // [Hz] bandwidth
     if(State) ErrState=State;
-    State=Radio_setupAFC(250.0);
+    State=Radio_setupAFC(250000);
     if(State) ErrState=State; }
 #elif defined(WITH_SX1276)
   if(RxMode)
-  { State=Radio_setRxBandwidth(250.0);                               // [kHz]  bandwidth - single side
+  { State=Radio_setRxBandwidth(250000);                              // [Hz] bandwidth
     if(State) ErrState=State; }
 #endif
 #ifdef WITH_SX1262
@@ -808,7 +808,7 @@ static void Radio_TxSysID(uint8_t SysID, const uint8_t *Packet, uint8_t PktLen)
 }
 
 // TX/RX slot for a Manchester-encoded protocol
-static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, const uint8_t *TxPacket, uint8_t TxSysID,
+static int Radio_Slot(uint8_t TxChannel, int16_t TxPower, uint32_t msTimeLen, const uint8_t *TxPacket, uint8_t TxSysID,
                       uint8_t RxChannel, uint8_t RxSysID, TimeSync &TimeRef)
 { // Serial.printf("Radio_Slot(#%d, %1.0fdBm, %dms, , %d, #%d, %d, )\n", TxChannel, TxPower, msTimeLen, TxSysID, RxChannel, RxSysID);
   uint8_t TxPktLen;
@@ -821,14 +821,14 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
   if(TxSyncLen<=0 || RxSyncLen<=0) return 0;
   if(RxSysID==Radio_SysID_LDR) RxPktLen+=7;                         // a hack !
   bool SameChan = TxChannel==RxChannel;                             // same frequency channel
-  float TxFreq = 1e-6*Radio_FreqPlan.getChanFrequency(TxChannel);   // Frequency for transmission
-  float RxFreq = 1e-6*Radio_FreqPlan.getChanFrequency(RxChannel);   // Frequency for reception
+  uint32_t TxFreq = Radio_FreqPlan.getChanFrequency(TxChannel);    // [Hz] transmission frequency
+  uint32_t RxFreq = Radio_FreqPlan.getChanFrequency(RxChannel);    // [Hz] reception frequency
 #ifdef DEBUG_SLOT                                                   // print every slot for scheduling checks
   if(xSemaphoreTake(CONS_Mutex, 20))
   { Serial.printf("Radio_Slot: %dms, %s, Tx:%s:%d:%5.1fMHz:%1.0fdBm, Rx:%s:%d:%5.1fMHz\n",
               msTimeLen, TxPacket?"RX/TX":"RX/--",
-              FSK_RxPacket::SysName(TxSysID), TxPktLen, TxFreq, TxPower,
-              FSK_RxPacket::SysName(RxSysID), RxPktLen, RxFreq);
+              FSK_RxPacket::SysName(TxSysID), TxPktLen, 1e-6*TxFreq, TxPower,
+              FSK_RxPacket::SysName(RxSysID), RxPktLen, 1e-6*RxFreq);
     xSemaphoreGive(CONS_Mutex); }
 #endif
   int PktCount=0;
@@ -890,13 +890,13 @@ static int Radio_Slot(uint8_t TxChannel, float TxPower, uint32_t msTimeLen, cons
 // =======================================================================================================
 
 // setup Radio for FANET or MESHT
-static void Radio_ConfigLoRa(float BW, uint8_t SF, uint8_t PreambleLen, uint8_t Sync, uint8_t CRa)
+static void Radio_ConfigLoRa(uint32_t BW, uint8_t SF, uint8_t PreambleLen, uint8_t Sync, uint8_t CRa)
 { uint32_t msDead=millis();
   // first switch to LoRa mode
 #ifdef WITH_SX1262
   if(Radio.getPacketType()!=RADIOLIB_SX126X_PACKET_TYPE_LORA)
   { uint32_t msDead=millis();
-    int State=Radio.config(RADIOLIB_SX126X_PACKET_TYPE_LORA);
+    int State=Radio.setModem(RADIOLIB_MODEM_LORA);
     if(State==0) Radio_Cache_Clear(); }
   //          Spreadng Factor,   Bandwidth,               Coding Rate,  low-data-rate-optimize
   // int Ret1=Radio.setModulationParams(7, RADIOLIB_SX126X_LORA_BW_250_0, 4+CRa, RADIOLIB_SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF);
@@ -930,7 +930,7 @@ static void Radio_ConfigLoRa(float BW, uint8_t SF, uint8_t PreambleLen, uint8_t 
 }
 
 #ifdef WITH_MESHT
-static void Radio_ConfigMESHT(uint8_t CRa=1) { Radio_ConfigLoRa(250.0f, 7, 16, 0x2B, CRa); } // 8 preamble symbols, SYNC=0x2B
+static void Radio_ConfigMESHT(uint8_t CRa=1) { Radio_ConfigLoRa(250000, 7, 16, 0x2B, CRa); } // 8 preamble symbols, SYNC=0x2B
 
 static void Radio_TxMESHT(MESHT_Packet &Packet)           // transmit a MESHT packet
 {
@@ -951,7 +951,7 @@ static int Radio_FANETrxPacket(TimeSync &TimeRef)                  // attemp to 
   int PktLen    = Radio.getPacketLength();   // [bytes]            // packet size
   float RSSI    = Radio.getRSSI();           // [dBm]              // RSSI
   float SNR     = Radio.getSNR();            // [dB]               // SNR
-  float FreqOfs = Radio.getFrequencyError(); // [Hz]               // freq. offset
+  int32_t FreqOfs = Radio.getFrequencyError(); // [Hz]             // freq. offset
   // Serial.printf("FANET: [%d] %3.1fdB %3.1fdBm %+4.1fkHz\n", PktLen, SNR, RSSI, 1e-3*FreqOfs);
   RxPkt->Flags  = 0;
   if(PktLen>RxPkt->MaxBytes) { PktLen=RxPkt->MaxBytes; RxPkt->badCRC=1; } // if packet size above what we expected
@@ -963,7 +963,7 @@ static int Radio_FANETrxPacket(TimeSync &TimeRef)                  // attemp to 
 #endif
   RxPkt->msTime  = msTime-TimeRef.sysTime;                         // [ms] time since the reference PPS
   RxPkt->sTime   = TimeRef.UTC;                                    // [sec] UTC PPS
-  RxPkt->FreqOfs = floorf(0.1*FreqOfs+0.5);
+  RxPkt->FreqOfs = FreqOfs/10;
   RxPkt->SNR     = floorf(SNR*4+0.5);
   RxPkt->RSSI    = floorf(RSSI+0.5);
   FNT_RxFIFO.Write();
@@ -998,14 +998,14 @@ static void Radio_TxFANET(FANET_Packet &Packet)                    // transmit a
   msDead = millis()-msDead; Radio_msDeadTime+=msDead;
   LED_OGN_TX(20); }
 
-static void Radio_ConfigFANET(float BW=250.0f, uint8_t CRa=1) { Radio_ConfigLoRa(BW, 7, 5, 0xF1, CRa); } // 5 preamble symbols, SYNC=0xF1
+static void Radio_ConfigFANET(uint32_t BW=250000, uint8_t CRa=1) { Radio_ConfigLoRa(BW, 7, 5, 0xF1, CRa); } // 5 preamble symbols, SYNC=0xF1
 
 /*
 static void Radio_ConfigFANET(uint8_t CRa=4)                       // setup Radio for FANET
 {                                                                  // first swith to LoRa mode
 #ifdef WITH_SX1262
   if(Radio.getPacketType()!=RADIOLIB_SX126X_PACKET_TYPE_LORA)
-  { int State=Radio.config(RADIOLIB_SX126X_PACKET_TYPE_LORA);
+  { int State=Radio.setModem(RADIOLIB_MODEM_LORA);
     if(State==0) Radio_Cache_Clear(); }
   //          Spreadng Factor,   Bandwidth,               Coding Rate,  low-data-rate-optimize
   Radio.setModulationParams(7, RADIOLIB_SX126X_LORA_BW_250_0, 4+CRa, RADIOLIB_SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF);
@@ -1018,7 +1018,7 @@ static void Radio_ConfigFANET(uint8_t CRa=4)                       // setup Radi
     if(State==0) Radio_Cache_Clear(); }
 #endif
   Radio.explicitHeader();
-  Radio.setBandwidth(250.0);
+  Radio.setBandwidth(250000);
   Radio.setSpreadingFactor(7);
   Radio.setCodingRate(4+CRa);
   Radio.invertIQ(false);
@@ -1033,7 +1033,7 @@ static void Radio_ConfigFANET(uint8_t CRa=4)                       // setup Radi
 */
 
 // reception slot with a possible transmission if TxPacket != NULL
-static int Radio_FANETslot(float BW, float Freq, float TxPower, uint32_t msTimeLen, FANET_Packet *TxPacket, TimeSync &TimeRef)
+static int Radio_FANETslot(uint32_t BW, uint32_t Freq, int16_t TxPower, uint32_t msTimeLen, FANET_Packet *TxPacket, TimeSync &TimeRef)
 { // Serial.printf("FANETslot: %6.3fMHz %dms %c\n", 1e-6*Freq, msTimeLen, TxPacket?'T':'r');
   uint32_t msStart = millis();                       // [ms]
   Radio.standby();
@@ -1130,13 +1130,12 @@ static uint32_t Radio_TxLoRaWAN(uint8_t *Packet, uint8_t PktLen)
 
 static const uint32_t LoRaWAN_DownlinkLateGraceMs=50; // [ms] tolerate downlink preamble starting this late after the scheduled window
 
-static uint32_t Radio_LoRaWANHeaderDetectMs(uint8_t SF, float BW)
-{ uint32_t BW_kHz=(uint32_t)(BW+0.5f);
-  if(!BW_kHz || SF>12) return 0;
-  uint32_t SymbolUs=(((1UL<<SF)*1000UL)+BW_kHz-1)/BW_kHz;
+static uint32_t Radio_LoRaWANHeaderDetectMs(uint8_t SF, uint32_t BW)
+{ if(!BW || SF>12) return 0;
+  uint32_t SymbolUs=(uint32_t)((((uint64_t)1<<SF)*1000000ULL+BW-1)/BW);
   return (22UL*SymbolUs+999)/1000; } // preamble, sync, and explicit header, with a small symbol margin
 
-static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLen, uint32_t msHeaderDeadline, float *RSSI=0, float *SNR=0, float *FreqOfs=0)
+static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLen, uint32_t msHeaderDeadline, float *RSSI=0, float *SNR=0, int32_t *FreqOfs=0)
 { uint32_t msStart=millis();
   // Serial.printf("RxLoRaWAN(%dms)\n", msTimeLen);
   int32_t HeaderLeft=(int32_t)(msHeaderDeadline-msStart);
@@ -1210,11 +1209,11 @@ static int Radio_RxLoRaWAN(uint8_t *Packet, uint8_t MaxPktLen, uint32_t msTimeLe
 #endif
   return PktLen; }
 
-static void Radio_ConfigLoRaWAN(uint8_t Chan, bool TX, float TxPower, uint8_t CRa=1, uint8_t SF=7, float BW=125.0f, float Freq=0.0f)
+static void Radio_ConfigLoRaWAN(uint8_t Chan, bool TX, int16_t TxPower, uint8_t CRa=1, uint8_t SF=7, uint32_t BW=125000, uint32_t Freq=0)
 { uint32_t msDead = millis();
 #ifdef WITH_SX1262
   if(Radio.getPacketType()!=RADIOLIB_SX126X_PACKET_TYPE_LORA)
-  { int State=Radio.config(RADIOLIB_SX126X_PACKET_TYPE_LORA);
+  { int State=Radio.setModem(RADIOLIB_MODEM_LORA);
     if(State==0) Radio_Cache_Clear(); }
   //          Spreadng Factor,   Bandwidth,               Coding Rate,  low-data-rate-optimize
   // Radio.setModulationParams(7, RADIOLIB_SX126X_LORA_BW_125_0, 4+CRa, RADIOLIB_SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF);
@@ -1244,9 +1243,9 @@ static void Radio_ConfigLoRaWAN(uint8_t Chan, bool TX, float TxPower, uint8_t CR
 
   msDead=millis()-msDead; Radio_msDeadTime+=msDead;
 
-  const float BaseFreq = 867.1;                //
-  const float ChanStep =   0.2;
-  Radio_setFrequency(Freq>0.0f ? Freq : BaseFreq+ChanStep*Chan); // set channel or fixed RX2 frequency
+  const uint32_t BaseFreq = 867100000;         // [Hz]
+  const uint32_t ChanStep =    200000;         // [Hz]
+  Radio_setFrequency(Freq ? Freq : BaseFreq+ChanStep*Chan); // channel or fixed RX2 frequency
   if(TX) Radio_setOutputPower(TxPower); }
 
 static bool Radio_LoRaWANSchedule(uint32_t SysTime, uint32_t msTime, uint32_t &SlotLen, bool &WANnearRx, bool HasOgnPacket)
@@ -1275,7 +1274,7 @@ static void Radio_LoRaWANService(bool WANtx, const OGN_Packet *OGN)
     WANdev.Chan=Random.RX&7;                                // choose random channel
     uint8_t CRa=4; if(Flight.inFlight()) CRa=1;              // set stronger Coding Rate when on the ground
     Radio_ConfigLoRaWAN(WANdev.Chan, 1, Parameters.TxPower, CRa); // setup for LoRaWAN on given channel
-    bool Busy=Radio.scanChannel()==RADIOLIB_PREAMBLE_DETECTED; // LoRa listen-before-talk
+    bool Busy=Radio.scanChannel()==RADIOLIB_LORA_DETECTED; // LoRa listen-before-talk
     if(Busy)
     { WAN_Retry=true; }
     else
@@ -1338,8 +1337,8 @@ static void Radio_LoRaWANService(bool WANtx, const OGN_Packet *OGN)
     else if(RespLeft < -100) WANmissed=1; }
   if(WANrx)
   { uint8_t SF=7;
-    float BW=125.0f;
-    float Freq=0.0f;
+    uint32_t BW=125000;
+    uint32_t Freq=0;
     if(WAN_RxWindow==1)                                      // RX1 follows the uplink channel and DR offset
     { if(WANdev.State==1) SF=7;                              // join-accept RX1 uses the join-request data rate
       else
@@ -1347,19 +1346,20 @@ static void Radio_LoRaWANService(bool WANtx, const OGN_Packet *OGN)
         if(Offset>5) Offset=5;
         SF=12-(5-Offset); } }
     else
-    { SF=9; Freq=869.525f; }                               // TTN EU_863_870_TTN RX2: DR3/SF9
+    { SF=9; Freq=869525000; }                              // [Hz] TTN EU_863_870_TTN RX2: DR3/SF9
     Radio_ConfigLoRaWAN(WANdev.Chan, 0, Parameters.TxPower, 1, SF, BW, Freq);
     Time=millis();
     RespLeft=(int32_t)(WAN_RespTick-Time);
     int32_t msMaxTime=RespLeft+260;
     if(msMaxTime<220) msMaxTime=220;
 #ifdef WITH_LORAWAN_DEBUG
-    printf("LoRaWAN RX%u open now=%lu due=%lu delta=%ld SF=%u BW=%.0f Freq=%.3f max=%ld\n",
+    printf("LoRaWAN RX%u open now=%lu due=%lu delta=%ld SF=%u BW=%lu Freq=%.3f max=%ld\n",
            WAN_RxWindow, (unsigned long)Time, (unsigned long)WAN_RespTick,
-           (long)RespLeft, SF, BW, Freq>0.0f ? Freq : 867.1f+0.2f*WANdev.Chan,
+           (long)RespLeft, SF, (unsigned long)BW/1000,
+           1e-6*(Freq ? Freq : 867100000+200000*WANdev.Chan),
            (long)msMaxTime);
 #endif
-    float RSSI=0; float SNR=0; float FreqOfs=0;
+    float RSSI=0; float SNR=0; int32_t FreqOfs=0;
     const uint32_t HeaderDeadline=WAN_RespTick+LoRaWAN_DownlinkLateGraceMs+Radio_LoRaWANHeaderDetectMs(SF, BW);
     int RxLen=Radio_RxLoRaWAN(WAN_RxPacket, sizeof(WAN_RxPacket), msMaxTime, HeaderDeadline, &RSSI, &SNR, &FreqOfs);
 #ifdef WITH_LORAWAN_DEBUG
@@ -1527,7 +1527,14 @@ void Radio_Task(void *Parms)
 #endif
 
 #ifdef WITH_SX1276
-  int State = Radio.beginFSK(868.2,          100.0,           50.0,        234.3,           14,              8);
+  ConfigFSK_t RadioConfig;
+  RadioConfig.frequency = 868200000;
+  RadioConfig.bitRate = 100000;
+  RadioConfig.frequencyDeviation = 50000;
+  RadioConfig.receiverBandwidth = 234300;
+  RadioConfig.power = 14;
+  RadioConfig.preambleLength = 8;
+  int State = Radio.beginFSK(RadioConfig);
   if(State==0) Radio_Cache_Clear();
   Radio_ChipVersion = Radio.getChipVersion();
   if(State==RADIOLIB_ERR_NONE && Radio_ChipVersion==0x12) HardwareStatus.Radio=1;
@@ -1535,15 +1542,22 @@ void Radio_Task(void *Parms)
   Radio_ChipTemperature = Radio.getTempRaw()+Parameters.RFchipTempCorr;
 #endif
 #ifdef WITH_SX1262
-  int State = Radio.beginFSK(868.2,          100.0,           50.0,        234.3,            0,              8,           Radio_TCXO_Voltage, 0);
+  Radio.tcxoVoltage = Radio_TCXO_Voltage;
+  Radio.useRegulatorLDO = false;
+  ConfigFSK_t RadioConfig;
+  RadioConfig.frequency = 868200000;
+  RadioConfig.bitRate = 100000;
+  RadioConfig.frequencyDeviation = 50000;
+  RadioConfig.receiverBandwidth = 234300;
+  RadioConfig.power = 0;
+  RadioConfig.preambleLength = 8;
+  int State = Radio.beginFSK(RadioConfig);
   if(State==0) Radio_Cache_Clear();
-  //                     Freq[MHz], Bit-rate[kbps], Freq.dev.[kHz], RxBand.[kHz], TxPower[dBm], preamble[bits], TXCO volt.[V], use LDO[bool]
+  // ConfigFSK_t uses frequency [Hz], bit rate [bps], deviation/bandwidth [Hz], power [dBm].
   // Serial.printf("Radio.begin() => %d\n", State);
   if(State==RADIOLIB_ERR_NONE) HardwareStatus.Radio=1;
                           // else LED_OGN_Red();
-  State = Radio.setFrequency(1e-6*Radio_FreqPlan.BaseFreq, 1); // calibrate
-  if(State==0) Radio_Cache_Clear();
-  Radio.setTCXO(Radio_TCXO_Voltage);
+  State = Radio_setFrequency(Radio_FreqPlan.BaseFreq); // apply plan frequency and calibrate when required
 #ifdef Radio_DIO2AsRfSwitch
   Radio.setDio2AsRfSwitch();
 #endif
@@ -1619,11 +1633,11 @@ void Radio_Task(void *Parms)
     uint32_t FreqMSH = Radio_FreqPlan.getFreqMESHT();           // frequency to transmit Meshtastic
     if(msTimeLeft>=100 && FreqMSH && Parameters.TxMSHT && MSH_TxFIFO.Full())
     { Radio_ConfigMESHT();
-      Radio_setFrequency(1e-6*FreqMSH);
+      Radio_setFrequency(FreqMSH);
       MESHT_Packet *MSHpacket = MSH_TxFIFO.getRead();
       if(MSHpacket)
       { // Serial.printf("MESHT_Packet [%d] %5.1fMHz\n", MSHpacket->Len, 1e-6*FreqMSH);
-        bool Busy = Radio.scanChannel()==RADIOLIB_PREAMBLE_DETECTED;
+        bool Busy = Radio.scanChannel()==RADIOLIB_LORA_DETECTED;
         if(!Busy)
         { Radio_TxMESHT(*MSHpacket);
           MSH_TxFIFO.Read(); }
@@ -1640,9 +1654,9 @@ void Radio_Task(void *Parms)
 #ifdef WITH_FANET_SLOT
     uint32_t FreqFNT = Radio_FreqPlan.getFreqFANET();            // frequency to transmit FANET
     if(msTimeLeft>=50 && FreqFNT)
-    { float BW=250.0f; if(Radio_FreqPlan.Plan>1) BW=500.0f;      // for plans 2,3 and 4 bandwidth 500kHz
+    { uint32_t BW=250000; if(Radio_FreqPlan.Plan>1) BW=500000; // [Hz] 250 or 500kHz
       Radio_ConfigFANET(BW);
-      Radio_setFrequency(1e-6*FreqFNT);
+      Radio_setFrequency(FreqFNT);
       Radio.startReceive();
       for( ; ; )
       { PktCount+=Radio_FANETrxPacket(TimeRef);                  // any packet received ?
@@ -1673,7 +1687,7 @@ void Radio_Task(void *Parms)
       uint8_t RxPktLen;
       const uint8_t *RxSYNC;
       int RxSyncLen = Radio_SysSYNC(RxSYNC, RxPktLen, RxSysID);
-      float RxFreq = 1e-6*Radio_FreqPlan.getChanFrequency(RxChannel);
+      uint32_t RxFreq = Radio_FreqPlan.getChanFrequency(RxChannel);
       uint32_t msStart = millis();                                      // [ms] note then slot starts
       Radio.standby();
       Radio_ConfigSysID(RxSysID, RxPktLen, 1, RxSYNC, RxSyncLen);
@@ -1711,10 +1725,10 @@ void Radio_Task(void *Parms)
     FANET_Packet *FNTpacket = FNT_TxFIFO.getRead();              // get the FANET packet to transmit
     uint32_t FreqFNT = Radio_FreqPlan.getFreqFANET();            // frequency to transmit FANET
     if(FNTpacket && FreqFNT && Parameters.TxFNT)
-    { float BW=250.0f; if(Radio_FreqPlan.Plan>1) BW=500.0f;      // for plans 2,3 and 4 bandwidth 500kHz
+    { uint32_t BW=250000; if(Radio_FreqPlan.Plan>1) BW=500000; // [Hz] 250 or 500kHz
       Radio_ConfigFANET(BW);
-      Radio_setFrequency(1e-6*FreqFNT);
-      bool Busy = Radio.scanChannel()==RADIOLIB_PREAMBLE_DETECTED;
+      Radio_setFrequency(FreqFNT);
+      bool Busy = Radio.scanChannel()==RADIOLIB_LORA_DETECTED;
       if(!Busy)
       { Radio_TxFANET(*FNTpacket);
         FNT_TxFIFO.Read(); }

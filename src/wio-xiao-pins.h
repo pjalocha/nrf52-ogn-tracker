@@ -29,7 +29,7 @@
 #define Radio_PinRXEN _PINNUM(0,  5) // D5, RF switch RX enable
 #define Radio_PinTXEN Pin_NotUsed
 #define Radio_DIO2AsRfSwitch         // SX1262 DIO2 controls the RF switch
-#define Radio_TCXO_Voltage 1.8 // SX1262 DIO3 TCXO voltage
+#define Radio_TCXO_Voltage Voltage1V8 // SX1262 DIO3 TCXO voltage
 
 // UI LED
 #define LED_PinRed     _PINNUM(0, 26) //
